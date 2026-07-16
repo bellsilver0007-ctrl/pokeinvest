@@ -19,7 +19,7 @@ export type Trade = {
 }
 
 export type UnitType = 'box' | 'pack' | 'card' | 'deck' | 'set' | 'goods' | 'unknown'
-export const unitLabels: Record<UnitType,string> = { box:'박스', pack:'낱팩', card:'카드', deck:'덱', set:'세트', goods:'굿즈', unknown:'미분류' }
+export const unitLabels: Record<UnitType,string> = { box:'ボックス', pack:'バラパック', card:'カード', deck:'デッキ', set:'セット', goods:'グッズ', unknown:'未分類' }
 export const inferUnitType = (name:string, category:string):UnitType => {
   const value=name.toLowerCase()
   if (/낱팩|(?:^|\s)팩|パック/.test(value)) return 'pack'
@@ -35,11 +35,28 @@ export type Holding = { id: string; name: string; category: string; quantity: nu
 export const categories = ['전체', '팩・박스', '싱글 카드', '굿즈・기타', '포켓몬 외']
 export const sources = ['전체', '메르카리', 'Yahoo!フリマ', '카드샵', '闲鱼', '요도바시', '포켓몬센터', '기타']
 
+const japaneseText: Record<string,string> = {
+  '스타트덱 이브이':'スタートデッキ イーブイ','스톰 에메랄드':'ストームエメラルド','스타덱':'スタデ','스타트덱':'スタートデッキ',
+  '닌자 스피너':'ニンジャスピナー','닌자 스피너 팩':'ニンジャスピナー パック','닌자 스피너 낱팩':'ニンジャスピナー バラパック','닌자 스피너 박스':'ニンジャスピナー ボックス',
+  '무니키스 제로':'ムニキスゼロ','무니키스 제로 박스':'ムニキスゼロ ボックス','무니키스 제로 낱팩':'ムニキスゼロ バラパック','무니키스 제로 스페셜 세트':'ムニキスゼロ スペシャルセット',
+  '메가 드림':'メガドリーム','메가 드림 박스':'メガドリーム ボックス','메가 드림 낱팩':'メガドリーム バラパック','테라스탈 페스':'テラスタルフェス','테라스탈 페스 박스':'テラスタルフェス ボックス',
+  '블랙 볼트・화이트 플레어':'ブラックボルト・ホワイトフレア','블랙 볼트・화이트 플레어 박스':'ブラックボルト・ホワイトフレア ボックス','인페르노':'インフェルノ','인페르노 박스':'インフェルノ ボックス','인페르노 낱팩':'インフェルノ バラパック',
+  '메가 브레이브':'メガブレイブ','메가 브레이브 박스':'メガブレイブ ボックス','메가 브레이브 낱팩':'メガブレイブ バラパック','메가 심포니아':'メガシンフォニア','메가 심포니아 박스':'メガシンフォニア ボックス','메가 심포니아 낱팩':'メガシンフォニア バラパック',
+  '어비스 아이':'アビスアイ','어비스 아이 낱팩':'アビスアイ バラパック','열풍의 아레나 낱팩':'熱風のアリーナ バラパック','로켓단의 영광 낱팩':'ロケット団の栄光 バラパック','겐가 덱':'ゲンガーデッキ','배틀 아카데미':'バトルアカデミー',
+  '라티아스 AR':'ラティアス AR','뮤・파이리 AR':'ミュウ・ヒトカゲ AR','이브이 ex SAR':'イーブイex SAR','뜨아거・악뜨거 AR':'ホゲータ・アチゲータ AR','비크티니 AR':'ビクティニ AR','주리비얀 AR':'ツタージャ AR','고우스트・메로엣타 AR':'ゴースト・メロエッタ AR','수댕이 AR':'ミジュマル AR','N의 조로아크 ex SAR':'Nのゾロアークex SAR','쌔비냥 AR':'チョロネコ AR','에몽가 AR':'エモンガ AR','치라치노 AR':'チラチーノ AR','푸호꼬・도치마론・미끄메라・꼬몽울':'フォッコ・ハリマロン・ヌメイル・スボミー','치라치노 SAR':'チラチーノ SAR','어니부기 AR':'カメール AR','부스터 AR':'ブースター AR','팽도리 CHR':'ポッチャマ CHR','바오프 AR':'バオップ AR','럭키 AR':'ラッキー AR','피카츄 25th AR':'ピカチュウ 25th AR','메가 겐가 MA':'メガゲンガー MA','조로아크 AR':'ゾロアーク AR','로사와 로이 SR':'ムサシとコジロウ SR','마리의 모르페코 AR':'マリィのモルペコ AR','이브이 AR':'イーブイ AR','벨의 진심 SAR':'ベルのまごころ SAR','뮤츠 AR':'ミュウツー AR','샤로다 ex SAR':'ジャローダex SAR','이브이 해외 프로모 AR':'イーブイ海外プロモ AR','치라미・치라치노 샤이니':'チラーミィ・チラチーノ シャイニー','피카츄 ex SAR':'ピカチュウex SAR','루치아의 어필 ex SAR':'ルチアのアピールex SAR','이브이 코로코로':'イーブイ コロコロ','이벨타르':'イベルタル','미라이돈':'ミライドン','코라이돈':'コライドン','난천의 찌르호크':'ナンジャモのハラバリー','리오르 AR':'リオル AR','중국 박스 宝石包 2.0':'中国ボックス 宝石包2.0','리피아 SAR':'リーフィア SAR','야도란 AR':'ヤドラン AR','이브이 프로모':'イーブイ プロモ','피카츄 몬스터볼':'ピカチュウ モンスターボール',
+  '님피아 ex SAR':'ニンフィアex SAR','N의 레시라무 AR':'Nのレシラム AR','블래키 ex SAR':'ブラッキーex SAR','리피아 ex SAR':'リーフィアex SAR','글레이시아 ex SAR':'グレイシアex SAR','피카츄 CHR':'ピカチュウ CHR','피카츄 AR':'ピカチュウ AR','고라파덕 AR':'コダック AR','루치아의 어필 SR':'ルチアのアピール SR','잠만보 CHR':'カビゴン CHR','이브이 CHR':'イーブイ CHR','따라큐':'ミミッキュ','플러시・마이농':'プラスル・マイナン','모부기・수풀부기・야나프・냐오불 AR':'ナエトル・ハヤシガメ・ヤナップ・ニャビー AR','포곰곰 외 5장 AR':'ヌイコグマほか5枚 AR','꼬부기・파이리・이상해씨 AR':'ゼニガメ・ヒトカゲ・フシギダネ AR','돌살이・토쇠골・디헤드 AR':'イシズマイ・ドテッコツ・ジヘッド AR','오박사 25th SR':'オーキド博士 25th SR','몽나 AR':'ムンナ AR','차오꿀・염무왕 AR':'チャオブー・エンブオー AR','보르쥐・보르그・모노두・디헤드':'ミネズミ・ミルホッグ・モノズ・ジヘッド','맥도날드 피카츄':'マクドナルド ピカチュウ','제크로무 CHR':'ゼクロム CHR','샹델라 AR':'シャンデラ AR','피카츄 V-UNION':'ピカチュウ V-UNION','성호의 아령':'ダイゴのダンベル','치라치노 SR':'チラチーノ SR','코바르온':'コバルオン','염버니 AR':'ヒバニー AR',
+  '심판':'ジャッジマン','플라드리':'フラダリ','이치방쿠지':'一番くじ','메가 개굴닌자 ex SAR':'メガゲッコウガex SAR','카드 일괄 판매':'カード一括売却','카드 매입':'カード購入','포켓카 범용 카드':'ポケカ汎用カード','이브이・님피아・리피아 AR':'イーブイ・ニンフィア・リーフィア AR',
+  '한국 잉어킹':'韓国コイキング','포켓몬 관련 상품':'ポケモン関連商品','포켓몬 관련 굿즈':'ポケモン関連グッズ','30주년 한정 카드 3종':'30周年限定カード 3種','한국 데코 스티커':'韓国デコステッカー','엠블럼 키링':'エンブレムキーリング','엠블럼 키링 2개':'エンブレムキーリング 2個','제주 에디션 마그넷':'チェジュエディション マグネット','30주년 나몰빼미':'30周年モクロー','30주년 냐오불':'30周年ニャビー','30주년 모부기':'30周年ナエトル','한국 가챠':'韓国ガチャガチャ','30주년 스티커':'30周年シール','한국 랜덤 배지':'韓国バッジ（ランダム）','한국 이벤트 배지':'韓国バッジ（イベント）','모프샌드 인형':'モフサンドぬいぐるみ',
+  '원문 합계 39,690엔에서 역산한 금액':'元メモの合計39,690円から逆算した金額','5,500엔 × 11. 메모 소계는 61,200엔':'5,500円 × 11。メモの小計は61,200円','5,500엔 × 6. 메모 소계는 11,720엔':'5,500円 × 6。メモの小計は11,720円','메모 소계에서 역산':'メモの小計から逆算','메모 소계는 4,800엔':'メモの小計は4,800円','트러블 보상으로 0엔':'トラブル補償により0円','약 금액':'概算金額','냐오불・모부기・나몰빼미, 증정':'ニャビー・ナエトル・モクロー、譲渡',
+  '기타 팩・박스':'その他パック・ボックス','싱글 판매':'シングル売却','한국 굿즈':'韓国グッズ','중국 굿즈':'中国グッズ','굿즈 판매':'グッズ売却','포켓몬 외':'ポケモン以外'
+}
+export const jaText = (value:string) => japaneseText[value] || value.replace(/^카드 매입 /,'カード購入 ').replace(/엔/g,'円')
+
 let seq = 0
 const t = (type: 'buy'|'sell', name: string, amount: number, source: string, category: string, group: string, quantity=1, points=0, note=''): Trade => ({
-  id: `memo-${++seq}`, type, name, amount, source, category, group, quantity, points,
+  id: `memo-${++seq}`, type, name:jaText(name), amount, source, category, group:jaText(group), quantity, points,
   unitPrice: quantity > 0 && amount > 0 ? Math.round(amount / quantity) : undefined,
-  date: '', note, unitType: inferUnitType(name,category), fee:0, shipping:0, sortOrder:seq,
+  date: '', note:jaText(note), unitType: inferUnitType(jaText(name),category), fee:0, shipping:0, sortOrder:seq,
 })
 const cardQty = (name: string, amount: number) => {
   if (name === '피카츄 25th AR' && amount === 830) return 3
@@ -135,12 +152,12 @@ export const seedTrades: Trade[] = [
 export const declaredTotals = { buy: 867325, sell: 417312 }
 
 export const seedHoldings: Holding[] = [
-  { id: 'h1', name: 'CHR까지', category: '싱글 카드', quantity: 1, value: 262812 },
-  { id: 'h2', name: '御三家 컬렉션', category: '싱글 카드', quantity: 1, value: 62000 },
-  { id: 'h3', name: 'AR 카드', category: '싱글 카드', quantity: 196, value: 137200 },
-  { id: 'h4', name: '이브이즈', category: '싱글 카드', quantity: 1, value: 154000 },
-  { id: 'h5', name: '닌자 스피너 미개봉 박스', category: '팩・박스', quantity: 2, value: 22000 },
-  { id: 'h6', name: '메가 드림 미개봉 박스', category: '팩・박스', quantity: 3, value: 45000 },
-  { id: 'h7', name: '토호쿠', category: '싱글 카드', quantity: 1, value: 20000 },
-  { id: 'h8', name: '히로시마', category: '싱글 카드', quantity: 1, value: 25000 },
+  { id: 'h1', name: 'CHRまで', category: '싱글 카드', quantity: 1, value: 262812 },
+  { id: 'h2', name: '御三家コレクション', category: '싱글 카드', quantity: 1, value: 62000 },
+  { id: 'h3', name: 'ARカード', category: '싱글 카드', quantity: 196, value: 137200 },
+  { id: 'h4', name: 'ブイズ', category: '싱글 카드', quantity: 1, value: 154000 },
+  { id: 'h5', name: 'ニンジャスピナー 未開封ボックス', category: '팩・박스', quantity: 2, value: 22000 },
+  { id: 'h6', name: 'メガドリーム 未開封ボックス', category: '팩・박스', quantity: 3, value: 45000 },
+  { id: 'h7', name: 'トウホク', category: '싱글 카드', quantity: 1, value: 20000 },
+  { id: 'h8', name: 'ヒロシマ', category: '싱글 카드', quantity: 1, value: 25000 },
 ]
