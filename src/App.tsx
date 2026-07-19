@@ -13,10 +13,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { inferUnitType, jaText, seedTrades, type Trade, type UnitType } from './data'
+import { inferUnitType, jaText, seedHoldings, seedTrades, starterDeckIds, type Trade, type UnitType } from './data'
 
 type Tab = 'home' | 'buy' | 'sell' | 'collection'
-type ProductCategory = 'カード' | 'パック' | 'ボックス' | 'デッキ' | 'グッズ' | 'その他'
+type ProductCategory = 'カード' | 'パック' | 'ボックス' | 'スタートデッキ' | 'グッズ' | 'その他'
 type Product = {
   id: string
   name: string
@@ -53,11 +53,10 @@ type ProductStats = {
   potentialProfit: number | null
 }
 
-const TRADE_STORAGE = 'pokeinvest-trades-v5'
-const LEGACY_TRADE_STORAGES = ['pokeinvest-trades-v4', 'pokeinvest-trades-v3', 'pokeinvest-trades-v2']
-const PRODUCT_STORAGE = 'pokeinvest-products-v1'
-const COLLECTION_STORAGE = 'pokeinvest-collection-v1'
-const productCategories: ProductCategory[] = ['カード', 'パック', 'ボックス', 'デッキ', 'グッズ', 'その他']
+const TRADE_STORAGE = 'pokeinvest-trades-v6'
+const PRODUCT_STORAGE = 'pokeinvest-products-v2'
+const COLLECTION_STORAGE = 'pokeinvest-collection-v2'
+const productCategories: ProductCategory[] = ['カード', 'パック', 'ボックス', 'スタートデッキ', 'グッズ', 'その他']
 const genericGroups = new Set([
   'メルカリ', 'Yahoo!フリマ', 'カードショップ', '闲鱼', 'シングル売却', '韓国グッズ',
   '中国グッズ', 'グッズ売却', 'ポケモン以外', 'その他パック・ボックス',
@@ -92,16 +91,16 @@ const productCategoryFromTrade = (trade: Trade): ProductCategory => {
   if (unit === 'card' || trade.category === '싱글 카드') return 'カード'
   if (unit === 'pack') return 'パック'
   if (unit === 'box') return 'ボックス'
-  if (unit === 'deck') return 'デッキ'
+  if (unit === 'deck') return 'スタートデッキ'
   if (unit === 'goods' || trade.category === '굿즈・기타' || trade.category === '포켓몬 외') return 'グッズ'
   return 'その他'
 }
 const unitFromProduct = (product: Product): UnitType => ({
-  カード: 'card', パック: 'pack', ボックス: 'box', デッキ: 'deck', グッズ: 'goods', その他: 'unknown',
+  カード: 'card', パック: 'pack', ボックス: 'box', スタートデッキ: 'deck', グッズ: 'goods', その他: 'unknown',
 })[product.category] as UnitType
 const legacyCategoryFromProduct = (product: Product) => {
   if (product.category === 'カード') return '싱글 카드'
-  if (['パック', 'ボックス', 'デッキ'].includes(product.category)) return '팩・박스'
+  if (['パック', 'ボックス', 'スタートデッキ'].includes(product.category)) return '팩・박스'
   if (product.category === 'グッズ') return '굿즈・기타'
   return '포켓몬 외'
 }
@@ -122,8 +121,7 @@ function readTrades(): Trade[] {
   try {
     const saved = localStorage.getItem(TRADE_STORAGE)
     if (saved) return JSON.parse(saved)
-    const legacy = LEGACY_TRADE_STORAGES.map(key => localStorage.getItem(key)).find(Boolean)
-    const source: Trade[] = legacy ? JSON.parse(legacy) : seedTrades
+    const source: Trade[] = seedTrades
     const migrated = source.map((trade, index) => ({
       ...trade,
       name: jaText(trade.name),
@@ -148,7 +146,14 @@ function createProductsFromTrades(trades: Trade[]): Product[] {
     const key = `${category}|${normalize(name)}`
     if (!name || seen.has(key)) return
     seen.add(key)
-    products.push({ id: `migrated-product-${products.length + 1}`, name, category, expectedPrice: 0 })
+    const holding = seedHoldings.find(item => item.category === '팩・박스' && category === 'ボックス' && normalize(item.name).startsWith(normalize(name)))
+    products.push({ id: `migrated-product-${products.length + 1}`, name, category, expectedPrice: holding ? Math.round(holding.value / holding.quantity) : 0 })
+  })
+  starterDeckIds.forEach(name => {
+    const key = `スタートデッキ|${normalize(name)}`
+    if (seen.has(key)) return
+    seen.add(key)
+    products.push({ id: `starter-deck-${name}`, name, category: 'スタートデッキ', expectedPrice: 0 })
   })
   return products.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
 }
@@ -176,7 +181,16 @@ function readProducts(trades: Trade[]): Product[] {
 function readCollection(): CollectionData {
   try {
     const saved = localStorage.getItem(COLLECTION_STORAGE)
-    return saved ? JSON.parse(saved) : { hiddenProductIds: [], manualCards: [] }
+    if (saved) return JSON.parse(saved)
+    return {
+      hiddenProductIds: [],
+      manualCards: seedHoldings.filter(item => item.category === '싱글 카드').map(item => ({
+        id: `holding-${item.id}`,
+        name: item.name,
+        quantity: item.quantity,
+        expectedPrice: Math.round(item.value / item.quantity),
+      })),
+    }
   } catch {
     return { hiddenProductIds: [], manualCards: [] }
   }

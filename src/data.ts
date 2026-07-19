@@ -20,12 +20,12 @@ export type Trade = {
 }
 
 export type UnitType = 'box' | 'pack' | 'card' | 'deck' | 'set' | 'goods' | 'unknown'
-export const unitLabels: Record<UnitType,string> = { box:'ボックス', pack:'バラパック', card:'カード', deck:'デッキ', set:'セット', goods:'グッズ', unknown:'未分類' }
+export const unitLabels: Record<UnitType,string> = { box:'ボックス', pack:'バラパック', card:'カード', deck:'スタートデッキ', set:'セット', goods:'グッズ', unknown:'未分類' }
 export const inferUnitType = (name:string, category:string):UnitType => {
   const value=name.toLowerCase()
   if (/낱팩|(?:^|\s)팩|パック/.test(value)) return 'pack'
   if (/박스|ボックス|box|宝石包|宝石宝/.test(value)) return 'box'
-  if (/덱|デッキ|スタデ/.test(value)) return 'deck'
+  if (/덱|デッキ|スタデ|スターター/.test(value)) return 'deck'
   if (/세트|セット|아카데미/.test(value)) return 'set'
   if (category==='싱글 카드') return 'card'
   if (category==='굿즈・기타'||category==='포켓몬 외') return 'goods'
@@ -35,6 +35,7 @@ export const inferUnitType = (name:string, category:string):UnitType => {
 export type Holding = { id: string; name: string; category: string; quantity: number; value: number }
 export const categories = ['전체', '팩・박스', '싱글 카드', '굿즈・기타', '포켓몬 외']
 export const sources = ['전체', '메르카리', 'Yahoo!フリマ', '카드샵', '闲鱼', '요도바시', '포켓몬센터', '기타']
+export const starterDeckIds = ['006','008','015','019','021','032','037','038','040','047','051','053','057','066','067','087','089','091','099']
 
 const japaneseText: Record<string,string> = {
   '스타트덱 이브이':'スタートデッキ イーブイ','스톰 에메랄드':'ストームエメラルド','스타덱':'スタデ','스타트덱':'スタートデッキ',
@@ -74,7 +75,7 @@ const cardQty = (name: string, amount: number) => {
 
 export const seedTrades: Trade[] = [
   // 팩・박스 매입
-  t('buy','스타트덱 이브이',2500,'기타','팩・박스','스타트덱',1),
+  t('buy','스타트덱 이브이',2500,'기타','팩・박스','스타트덱 이브이',1),
   t('buy','스톰 에메랄드',12000,'기타','팩・박스','스톰 에메랄드',2,0,'6,000엔 × 2'),
   t('buy','스타덱',20493,'기타','팩・박스','스타덱',23,0,'891엔 × 23'),
   t('buy','닌자 스피너 팩',2160,'요도바시 우메다','팩・박스','닌자 스피너',15),
@@ -131,10 +132,15 @@ export const seedTrades: Trade[] = [
   t('buy','이치방쿠지',2310,'기타','싱글 카드','카드샵'),t('buy','포켓카 범용 카드',7400,'지라풀','싱글 카드','카드샵'),t('buy','카드 매입',840,'북오프','싱글 카드','카드샵'),t('buy','카드 매입',1200,'북오프','싱글 카드','카드샵'),
   t('buy','이브이・님피아・리피아 AR',16000,'闲鱼','싱글 카드','闲鱼',3),
 
-  // 싱글 판매
+  // スターターデッキ販売
   ...[
-    ['006',3890],['021',1640],['032',69990],['037',730],['038',730],['038',685],['040',50240],['047',1045],['067',25350],['087',685],['089',5420],['091',1045],['いたら好きのピチュー',2130],['심판',785],['플라드리',1550],['이치방쿠지',12450],['메가 개굴닌자 ex SAR',33990],['카드 일괄 판매',8000],['카드 일괄 판매',20000],
-  ].map((x,i)=>t('sell',String(x[0]),Number(x[1]),i===16?'북오프':i===17?'카드샵':'메르카리・카드샵','싱글 카드','싱글 판매',1,0,(i>=16)?'약 금액':'')),
+    ['006',3890],['021',1640],['032',69990],['037',730],['038',730],['038',685],['040',50240],['047',1045],['067',25350],['087',685],['089',5420],['091',1045],
+  ].map(x=>({...t('sell',String(x[0]),Number(x[1]),'메르카리・카드샵','팩・박스',String(x[0])),unitType:'deck' as UnitType})),
+
+  // シングル販売
+  ...[
+    ['いたら好きのピチュー',2130],['심판',785],['플라드리',1550],['이치방쿠지',12450],['메가 개굴닌자 ex SAR',33990],['카드 일괄 판매',8000],['카드 일괄 판매',20000],
+  ].map((x,i)=>t('sell',String(x[0]),Number(x[1]),i===5?'북오프':i===6?'카드샵':'메르카리・카드샵','싱글 카드','싱글 판매',1,0,(i>=5)?'약 금액':'')),
 
   // 굿즈・기타 매입/매도
   t('buy','한국 잉어킹',3800,'한국','굿즈・기타','한국 굿즈',2,0,'1,900엔 × 2'),
