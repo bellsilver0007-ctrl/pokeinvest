@@ -1,5 +1,6 @@
 export type Trade = {
   id: string
+  productId?: string
   name: string
   category: string
   group: string
