@@ -23,6 +23,16 @@ type Product = {
   category: ProductCategory
   expectedPrice: number
 }
+type ManualCollectionCard = {
+  id: string
+  name: string
+  quantity: number
+  expectedPrice: number
+}
+type CollectionData = {
+  hiddenProductIds: string[]
+  manualCards: ManualCollectionCard[]
+}
 type ProductStats = {
   product: Product
   trades: Trade[]
@@ -46,6 +56,7 @@ type ProductStats = {
 const TRADE_STORAGE = 'pokeinvest-trades-v5'
 const LEGACY_TRADE_STORAGES = ['pokeinvest-trades-v4', 'pokeinvest-trades-v3', 'pokeinvest-trades-v2']
 const PRODUCT_STORAGE = 'pokeinvest-products-v1'
+const COLLECTION_STORAGE = 'pokeinvest-collection-v1'
 const productCategories: ProductCategory[] = ['カード', 'パック', 'ボックス', 'デッキ', 'グッズ', 'その他']
 const genericGroups = new Set([
   'メルカリ', 'Yahoo!フリマ', 'カードショップ', '闲鱼', 'シングル売却', '韓国グッズ',
@@ -162,6 +173,15 @@ function readProducts(trades: Trade[]): Product[] {
   }
 }
 
+function readCollection(): CollectionData {
+  try {
+    const saved = localStorage.getItem(COLLECTION_STORAGE)
+    return saved ? JSON.parse(saved) : { hiddenProductIds: [], manualCards: [] }
+  } catch {
+    return { hiddenProductIds: [], manualCards: [] }
+  }
+}
+
 function belongsToProduct(trade: Trade, product: Product) {
   if (trade.productId) return trade.productId === product.id
   return normalize(getProductName(trade)) === normalize(product.name) && productCategoryFromTrade(trade) === product.category
@@ -194,10 +214,12 @@ function calculateStats(product: Product, trades: Trade[]): ProductStats {
 export function App() {
   const [trades, setTrades] = useState<Trade[]>(readTrades)
   const [products, setProducts] = useState<Product[]>(() => readProducts(trades))
+  const [collection, setCollection] = useState<CollectionData>(readCollection)
   const [tab, setTab] = useState<Tab>('home')
   const [productModal, setProductModal] = useState<Product | 'new' | null>(null)
   const [tradeModal, setTradeModal] = useState<{ product: Product; type: 'buy' | 'sell'; trade: Trade | null } | null>(null)
   const [pickerType, setPickerType] = useState<'buy' | 'sell' | null>(null)
+  const [collectionModal, setCollectionModal] = useState<ManualCollectionCard | 'new' | null>(null)
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<ProductCategory | 'すべて'>('すべて')
   const [historyKey, setHistoryKey] = useState<string | null>(null)
@@ -248,6 +270,10 @@ export function App() {
     setProducts(next)
     localStorage.setItem(PRODUCT_STORAGE, JSON.stringify(next))
   }
+  const persistCollection = (next: CollectionData) => {
+    setCollection(next)
+    localStorage.setItem(COLLECTION_STORAGE, JSON.stringify(next))
+  }
   const saveProduct = (product: Product) => {
     const existing = products.find(item => item.id === product.id)
     if (products.some(item => item.id !== product.id && item.category === product.category && normalize(item.name) === normalize(product.name))) {
@@ -274,6 +300,26 @@ export function App() {
   }
   const setExpectedPrice = (productId: string, value: number) => {
     persistProducts(products.map(product => product.id === productId ? { ...product, expectedPrice: value } : product))
+  }
+  const hideCollectionProduct = (product: Product) => {
+    if (confirm(`「${product.name}」をコレクションから外しますか？\n購入・売却履歴は削除されません。`)) {
+      persistCollection({ ...collection, hiddenProductIds: [...new Set([...collection.hiddenProductIds, product.id])] })
+    }
+  }
+  const restoreCollectionProduct = (productId: string) => {
+    persistCollection({ ...collection, hiddenProductIds: collection.hiddenProductIds.filter(id => id !== productId) })
+    setCollectionModal(null)
+  }
+  const saveManualCard = (card: ManualCollectionCard) => {
+    const exists = collection.manualCards.some(item => item.id === card.id)
+    persistCollection({ ...collection, manualCards: exists ? collection.manualCards.map(item => item.id === card.id ? card : item) : [...collection.manualCards, card] })
+    setCollectionModal(null)
+  }
+  const deleteManualCard = (card: ManualCollectionCard) => {
+    if (confirm(`「${card.name}」をコレクションから削除しますか？`)) {
+      persistCollection({ ...collection, manualCards: collection.manualCards.filter(item => item.id !== card.id) })
+      setCollectionModal(null)
+    }
   }
   const saveTrade = (trade: Trade) => {
     const existing = trades.some(item => item.id === trade.id)
@@ -392,11 +438,19 @@ export function App() {
         onHistory={setHistoryKey}
         onAdd={(product, type) => setTradeModal({ product, type, trade: null })}
         onEdit={(product, type, trade) => setTradeModal({ product, type, trade })}
+        onDelete={(product, trade) => deleteTrade(trade, product)}
         onRegister={() => setPickerType(tab)}
         onExport={() => exportCsv(tab)}
       />}
 
-      {tab === 'collection' && <CollectionPage stats={stats.filter(item => item.product.category === 'カード')} onEditPrice={setExpectedPrice} />}
+      {tab === 'collection' && <CollectionPage
+        stats={stats.filter(item => item.product.category === 'カード' && !collection.hiddenProductIds.includes(item.product.id))}
+        manualCards={collection.manualCards}
+        onEditPrice={setExpectedPrice}
+        onAdd={() => setCollectionModal('new')}
+        onEditManual={setCollectionModal}
+        onHideProduct={hideCollectionProduct}
+      />}
     </main>
 
     <nav className="bottom-nav">
@@ -431,11 +485,19 @@ export function App() {
         setTradeModal({ product, type, trade: null })
       }}
     />}
+    {collectionModal && <CollectionModal
+      card={collectionModal === 'new' ? null : collectionModal}
+      hiddenProducts={stats.filter(item => item.product.category === 'カード' && collection.hiddenProductIds.includes(item.product.id)).map(item => item.product)}
+      onClose={() => setCollectionModal(null)}
+      onSave={saveManualCard}
+      onDelete={deleteManualCard}
+      onRestore={restoreCollectionProduct}
+    />}
   </div>
 }
 
 function TransactionPage({
-  type, stats, query, categoryFilter, historyKey, onQuery, onCategory, onHistory, onAdd, onEdit, onRegister, onExport,
+  type, stats, query, categoryFilter, historyKey, onQuery, onCategory, onHistory, onAdd, onEdit, onDelete, onRegister, onExport,
 }: {
   type: 'buy' | 'sell'
   stats: ProductStats[]
@@ -447,6 +509,7 @@ function TransactionPage({
   onHistory: (value: string | null) => void
   onAdd: (product: Product, type: 'buy' | 'sell') => void
   onEdit: (product: Product, type: 'buy' | 'sell', trade: Trade) => void
+  onDelete: (product: Product, trade: Trade) => void
   onRegister: () => void
   onExport: () => void
 }) {
@@ -472,10 +535,13 @@ function TransactionPage({
           </div>
           {historyKey === key && <div className="trade-history">
             <div className="history-add-row"><span>{isBuy ? '購入履歴' : '売却履歴'} · {histories.length}件</span><button disabled={!isBuy && !canSell} onClick={() => onAdd(item.product, type)}><Plus size={13} /> {isBuy ? '購入履歴を追加' : '売却履歴を追加'}</button></div>
-            {histories.map(trade => <button key={trade.id} onClick={() => onEdit(item.product, type, trade)}>
-              <span><strong>{trade.date || '日付未入力'}</strong><small>{sourceLabel(trade.source)} · {trade.quantity}個 · 単価 {yen((trade.amount + (isBuy ? trade.points : 0)) / trade.quantity)}{trade.points ? ` · ${trade.points.toLocaleString()}p使用` : ''}</small></span>
-              <b>{yen(trade.amount)}</b><Pencil size={13} />
-            </button>)}
+            {histories.map(trade => <div className="trade-history-item" key={trade.id}>
+              <button className="history-edit" onClick={() => onEdit(item.product, type, trade)}>
+                <span><strong>{trade.date || '日付未入力'}</strong><small>{sourceLabel(trade.source)} · {trade.quantity}個 · 単価 {yen((trade.amount + (isBuy ? trade.points : 0)) / trade.quantity)}{trade.points ? ` · ${trade.points.toLocaleString()}p使用` : ''}</small></span>
+                <b>{yen(trade.amount)}</b><Pencil size={13} />
+              </button>
+              <button className="history-delete" aria-label={`${trade.date || '日付未入力'}の履歴を削除`} onClick={() => onDelete(item.product, trade)}><Trash2 size={13} /></button>
+            </div>)}
           </div>}
         </article>
       })}
@@ -506,11 +572,18 @@ function ProductPickerModal({ type, stats, onClose, onSelect }: {
   </div>
 }
 
-function CollectionPage({ stats, onEditPrice }: { stats: ProductStats[]; onEditPrice: (id: string, value: number) => void }) {
-  const totalValue = stats.reduce((sum, item) => sum + item.potentialValue, 0)
-  const owned = stats.reduce((sum, item) => sum + item.stock, 0)
+function CollectionPage({ stats, manualCards, onEditPrice, onAdd, onEditManual, onHideProduct }: {
+  stats: ProductStats[]
+  manualCards: ManualCollectionCard[]
+  onEditPrice: (id: string, value: number) => void
+  onAdd: () => void
+  onEditManual: (card: ManualCollectionCard) => void
+  onHideProduct: (product: Product) => void
+}) {
+  const totalValue = stats.reduce((sum, item) => sum + item.potentialValue, 0) + manualCards.reduce((sum, item) => sum + item.expectedPrice * item.quantity, 0)
+  const owned = stats.reduce((sum, item) => sum + item.stock, 0) + manualCards.reduce((sum, item) => sum + item.quantity, 0)
   return <section className="page section collection-page">
-    <p className="eyebrow">CARD COLLECTION</p><h1>カードコレクション</h1>
+    <div className="page-title-row"><div><p className="eyebrow">CARD COLLECTION</p><h1>カードコレクション</h1></div><button className="register-button" onClick={onAdd}><Plus size={15} /> カード登録</button></div>
     <div className="collection-summary"><div><span>保有カード</span><strong>{owned.toLocaleString()}枚</strong></div><div><span>想定価値</span><strong>{yen(totalValue)}</strong></div></div>
     <p className="page-description">購入カテゴリーが「カード」の商品は自動で表示されます。</p>
     <div className="collection-grid">{stats.map(item => {
@@ -518,14 +591,49 @@ function CollectionPage({ stats, onEditPrice }: { stats: ProductStats[]; onEditP
       return <article className="collection-card" key={item.product.id}>
         <div className="card-photo"><Images size={23} /><span>PHOTO</span><small>後日対応</small></div>
         <div className="card-content">
-          <div className="card-tags"><span className="category-tag">カード</span>{item.sellQty > 0 && <span className={soldOut ? 'sold-tag sold-out' : 'sold-tag'}>{soldOut ? '売却完了' : `${item.sellQty}枚売却`}</span>}</div>
+          <div className="card-tags"><span className="category-tag">カード</span>{item.sellQty > 0 && <span className={soldOut ? 'sold-tag sold-out' : 'sold-tag'}>{soldOut ? '売却完了' : `${item.sellQty}枚売却`}</span>}<button className="collection-remove" aria-label={`${item.product.name}をコレクションから外す`} onClick={() => onHideProduct(item.product)}><Trash2 size={12} /></button></div>
           <h3>{item.product.name}</h3><p>保有 {item.stock.toLocaleString()}枚 · 購入 {item.buyQty.toLocaleString()}枚</p>
           <label className="collection-price"><span>想定売価</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => onEditPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
         </div>
       </article>
-    })}</div>
-    {!stats.length && <div className="empty">カード商品がありません。</div>}
+    })}{manualCards.map(card => <article className="collection-card" key={card.id}>
+      <div className="card-photo"><Images size={23} /><span>PHOTO</span><small>後日対応</small></div>
+      <div className="card-content">
+        <div className="card-tags"><span className="manual-tag">手動登録</span><button className="collection-remove" aria-label={`${card.name}を編集`} onClick={() => onEditManual(card)}><Pencil size={12} /></button></div>
+        <h3>{card.name}</h3><p>保有 {card.quantity.toLocaleString()}枚</p>
+        <div className="manual-value"><span>想定売価</span><strong>{yen(card.expectedPrice)}</strong><small>合計 {yen(card.expectedPrice * card.quantity)}</small></div>
+      </div>
+    </article>)}</div>
+    {!stats.length && !manualCards.length && <div className="empty">カードがありません。<br />「カード登録」から追加できます。</div>}
   </section>
+}
+
+function CollectionModal({ card, hiddenProducts, onClose, onSave, onDelete, onRestore }: {
+  card: ManualCollectionCard | null
+  hiddenProducts: Product[]
+  onClose: () => void
+  onSave: (card: ManualCollectionCard) => void
+  onDelete: (card: ManualCollectionCard) => void
+  onRestore: (productId: string) => void
+}) {
+  const [name, setName] = useState(card?.name || '')
+  const [quantity, setQuantity] = useState(String(card?.quantity || 1))
+  const [expectedPrice, setExpectedPrice] = useState(String(card?.expectedPrice || ''))
+  return <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <form className="modal" onSubmit={event => {
+      event.preventDefault()
+      if (!name.trim() || Number(quantity) <= 0) return
+      onSave({ id: card?.id || crypto.randomUUID(), name: name.trim(), quantity: Number(quantity), expectedPrice: Number(expectedPrice) || 0 })
+    }}>
+      <div className="modal-head"><div><p className="eyebrow">COLLECTION CARD</p><h2>{card ? 'カードを編集' : 'カードを登録'}</h2></div><button type="button" onClick={onClose}><X /></button></div>
+      {!card && hiddenProducts.length > 0 && <div className="restore-panel"><strong>コレクションから外したカード</strong><p>購入履歴と連携した状態で再登録できます。</p>{hiddenProducts.map(product => <button type="button" key={product.id} onClick={() => onRestore(product.id)}><span>{product.name}</span><Plus size={14} /></button>)}</div>}
+      <label className="field">カード名<input value={name} onChange={event => setName(event.target.value)} placeholder="例：イーブイex SAR" autoFocus /></label>
+      <div className="form-grid"><label className="field">保有枚数<input inputMode="numeric" value={quantity} onChange={event => setQuantity(event.target.value.replace(/\D/g, ''))} /></label><label className="field">想定売価（1枚）<input inputMode="numeric" value={expectedPrice} onChange={event => setExpectedPrice(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label></div>
+      <p className="modal-note">手動登録したカードは購入・売却履歴には影響しません。</p>
+      <button className="submit-button" type="submit">{card ? '変更を保存' : 'コレクションに登録'}</button>
+      {card && <button className="delete-button" type="button" onClick={() => onDelete(card)}><Trash2 size={15} /> コレクションから削除</button>}
+    </form>
+  </div>
 }
 
 function ProductModal({ product, onClose, onSave, onDelete }: {

@@ -166,8 +166,10 @@ button { color: inherit; }
 .history-add-row > span { color: #858a82; font-size: 8px; font-weight: 700; }
 .history-add-row > button { width: auto; display: inline-flex; grid-template-columns: none; align-items: center; gap: 4px; padding: 7px 9px; color: white; border: 0; border-radius: 8px; background: var(--ink); font-size: 8px; font-weight: 800; }
 .history-add-row > button:disabled { opacity: .35; }
-.trade-history > button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 75px 24px; align-items: center; gap: 6px; padding: 10px 9px; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
-.trade-history > button:last-child { border-bottom: 0; }
+.trade-history-item { display: grid; grid-template-columns: minmax(0, 1fr) 29px; align-items: center; border-bottom: 1px solid var(--line); }
+.trade-history-item:last-child { border-bottom: 0; }
+.history-edit { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 75px 24px; align-items: center; gap: 6px; padding: 10px 5px 10px 9px; text-align: left; border: 0; background: transparent; }
+.history-delete { width: 27px; height: 29px; padding: 0; display: grid; place-items: center; color: var(--red); border: 1px solid #f0d8d4; border-radius: 7px; background: #fff8f6; }
 .trade-history span { min-width: 0; }
 .trade-history strong, .trade-history small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trade-history strong { font-size: 9px; }
@@ -187,14 +189,19 @@ button { color: inherit; }
 .card-photo small { margin-top: 2px; font-size: 6px; }
 .card-content { min-width: 0; padding: 11px 12px; }
 .card-tags { display: flex; gap: 5px; }
-.category-tag, .sold-tag { padding: 3px 6px; border-radius: 5px; font-size: 7px; font-weight: 700; }
+.category-tag, .sold-tag, .manual-tag { padding: 3px 6px; border-radius: 5px; font-size: 7px; font-weight: 700; }
 .category-tag { color: #4c70a7; background: #e9effa; }
 .sold-tag { color: #a56d24; background: #fff1d9; }
 .sold-tag.sold-out { color: #777b75; background: #e9ebe6; }
+.manual-tag { color: #705e9f; background: #f0ebfa; }
+.collection-remove { width: 24px; height: 24px; margin: -3px -4px -3px auto; padding: 0; display: grid; place-items: center; color: #858a82; border: 1px solid var(--line); border-radius: 7px; background: white; }
 .card-content h3 { overflow: hidden; margin: 8px 0 4px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .card-content p { margin: 0 0 8px; color: #8c9089; font-size: 8px; }
 .collection-price { position: relative; display: grid; grid-template-columns: 65px 12px minmax(0, 1fr); align-items: center; margin: 0; color: #777c74; font-size: 8px; }
 .collection-price input { width: 100%; min-width: 0; padding: 6px 7px; text-align: right; border: 1px solid var(--line); border-radius: 7px; outline: 0; background: #fafbf8; font-size: 9px; }
+.manual-value { display: grid; grid-template-columns: 60px 1fr; align-items: center; font-size: 8px; }
+.manual-value strong { text-align: right; font-size: 10px; }
+.manual-value small { grid-column: 1/-1; margin-top: 3px; color: var(--muted); text-align: right; font-size: 7px; }
 
 .bottom-nav { position: fixed; left: 50%; bottom: 0; z-index: 15; width: min(540px, 100%); height: calc(72px + env(safe-area-inset-bottom)); padding: 6px 15px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(4, 1fr); background: #ffffffed; border-top: 1px solid var(--line); backdrop-filter: blur(18px); transform: translateX(-50%); }
 .bottom-nav button { border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #a0a49d; background: transparent; font-size: 8px; }
@@ -227,6 +234,10 @@ button { color: inherit; }
 .picker-list strong, .picker-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-list strong { font-size: 11px; }
 .picker-list small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.restore-panel { margin-bottom: 14px; padding: 12px; border: 1px solid #ded8ef; border-radius: 12px; background: #f7f3ff; }
+.restore-panel > strong { display: block; font-size: 10px; }
+.restore-panel > p { margin: 3px 0 8px; color: #817991; font-size: 8px; }
+.restore-panel > button { width: 100%; padding: 8px 7px; display: flex; align-items: center; justify-content: space-between; border: 0; border-top: 1px solid #e5dff0; background: transparent; font-size: 9px; }
 .empty { padding: 30px 10px; color: #999d96; text-align: center; font-size: 10px; }
 
 @keyframes modal-up { from { opacity: 0; transform: translateY(35px); } }
