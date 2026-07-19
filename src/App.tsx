@@ -22,8 +22,8 @@ type Product = {
   name: string
   category: ProductCategory
   expectedPrice: number
-  manualUnitCost?: number
 }
+type RealizedOverride = { cost?: number; sale?: number }
 type ManualCollectionCard = {
   id: string
   name: string
@@ -57,6 +57,7 @@ type ProductStats = {
 const TRADE_STORAGE = 'pokeinvest-trades-v6'
 const PRODUCT_STORAGE = 'pokeinvest-products-v2'
 const COLLECTION_STORAGE = 'pokeinvest-collection-v2'
+const REALIZED_STORAGE = 'pokeinvest-realized-overrides-v1'
 const productCategories: ProductCategory[] = ['カード', 'パック', 'ボックス', 'スタートデッキ', 'グッズ', 'その他']
 const genericGroups = new Set([
   'メルカリ', 'Yahoo!フリマ', 'カードショップ', '闲鱼', 'シングル売却', '韓国グッズ',
@@ -197,6 +198,15 @@ function readCollection(): CollectionData {
   }
 }
 
+function readRealizedOverrides(): Record<string, RealizedOverride> {
+  try {
+    const saved = localStorage.getItem(REALIZED_STORAGE)
+    return saved ? JSON.parse(saved) : {}
+  } catch {
+    return {}
+  }
+}
+
 function belongsToProduct(trade: Trade, product: Product) {
   if (trade.productId) return trade.productId === product.id
   return normalize(getProductName(trade)) === normalize(product.name) && productCategoryFromTrade(trade) === product.category
@@ -212,10 +222,9 @@ function calculateStats(product: Product, trades: Trade[]): ProductStats {
   const buyCost = buyTrades.reduce((sum, trade) => sum + trade.amount + trade.points + (trade.fee || 0) + (trade.shipping || 0), 0)
   const sellAmount = sellTrades.reduce((sum, trade) => sum + trade.amount, 0)
   const saleNet = sellTrades.reduce((sum, trade) => sum + trade.amount - (trade.fee || 0) - (trade.shipping || 0), 0)
-  const automaticAverageCost = buyQty > 0 ? buyCost / buyQty : null
-  const averageCost = product.manualUnitCost && product.manualUnitCost > 0 ? product.manualUnitCost : automaticAverageCost
-  const validCost = Boolean(product.manualUnitCost && product.manualUnitCost > 0) || (buyQty > 0 && buyQty >= sellQty)
-  const soldCost = validCost && averageCost !== null ? averageCost * sellQty : null
+  const validCost = buyQty > 0 && buyQty >= sellQty
+  const averageCost = buyQty > 0 ? buyCost / buyQty : null
+  const soldCost = validCost ? (averageCost || 0) * sellQty : null
   const stock = Math.max(0, buyQty - sellQty)
   const remainingCost = validCost ? (averageCost || 0) * stock : null
   const realizedProfit = soldCost === null ? null : saleNet - soldCost
@@ -231,11 +240,13 @@ export function App() {
   const [trades, setTrades] = useState<Trade[]>(readTrades)
   const [products, setProducts] = useState<Product[]>(() => readProducts(trades))
   const [collection, setCollection] = useState<CollectionData>(readCollection)
+  const [realizedOverrides, setRealizedOverrides] = useState<Record<string, RealizedOverride>>(readRealizedOverrides)
   const [tab, setTab] = useState<Tab>('home')
   const [productModal, setProductModal] = useState<Product | 'new' | null>(null)
   const [tradeModal, setTradeModal] = useState<{ product: Product; type: 'buy' | 'sell'; trade: Trade | null } | null>(null)
   const [pickerType, setPickerType] = useState<'buy' | 'sell' | null>(null)
   const [collectionModal, setCollectionModal] = useState<ManualCollectionCard | 'new' | null>(null)
+  const [realizedModal, setRealizedModal] = useState<ProductStats | null>(null)
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<ProductCategory | 'すべて'>('すべて')
   const [historyKey, setHistoryKey] = useState<string | null>(null)
@@ -243,17 +254,24 @@ export function App() {
   const [showAllSold, setShowAllSold] = useState(false)
 
   const stats = useMemo(() => products.map(product => calculateStats(product, trades)), [products, trades])
+  const realizedValues = (item: ProductStats) => {
+    const override = realizedOverrides[item.product.id]
+    const cost = override?.cost !== undefined ? override.cost : item.soldCost
+    const sale = override?.sale !== undefined ? override.sale : item.saleNet
+    return { cost, sale, profit: cost === null ? null : sale - cost, overridden: Boolean(override) }
+  }
   const totals = useMemo(() => {
-    const confirmedSales = stats.filter(item => item.sellQty > 0 && item.realizedProfit !== null)
-    const realizedProfit = confirmedSales.reduce((sum, item) => sum + (item.realizedProfit || 0), 0)
-    const realizedSales = confirmedSales.reduce((sum, item) => sum + item.saleNet, 0)
-    const realizedCost = confirmedSales.reduce((sum, item) => sum + (item.soldCost || 0), 0)
+    const soldItems = stats.filter(item => item.sellQty > 0).map(item => ({ item, values: realizedValues(item) }))
+    const confirmedSales = soldItems.filter(entry => entry.values.profit !== null)
+    const realizedProfit = confirmedSales.reduce((sum, entry) => sum + (entry.values.profit || 0), 0)
+    const realizedSales = confirmedSales.reduce((sum, entry) => sum + entry.values.sale, 0)
+    const realizedCost = confirmedSales.reduce((sum, entry) => sum + (entry.values.cost || 0), 0)
     const potentialValue = stats.reduce((sum, item) => sum + item.potentialValue, 0)
     const remainingCost = stats.reduce((sum, item) => sum + (item.remainingCost || 0), 0)
     const potentialProfit = stats.filter(item => item.potentialProfit !== null).reduce((sum, item) => sum + (item.potentialProfit || 0), 0)
     return {
       confirmedSales: confirmedSales.length,
-      soldProducts: stats.filter(item => item.sellQty > 0).length,
+      soldProducts: soldItems.length,
       realizedProfit,
       realizedSales,
       realizedCost,
@@ -262,7 +280,7 @@ export function App() {
       potentialProfit,
       estimatedProfit: realizedProfit + potentialProfit,
     }
-  }, [stats])
+  }, [stats, realizedOverrides])
   const inStock = stats.filter(item => item.stock > 0)
   const pricedStock = inStock.filter(item => item.product.expectedPrice > 0)
   const soldStats = stats.filter(item => item.sellQty > 0).sort((a, b) => {
@@ -289,6 +307,10 @@ export function App() {
   const persistCollection = (next: CollectionData) => {
     setCollection(next)
     localStorage.setItem(COLLECTION_STORAGE, JSON.stringify(next))
+  }
+  const persistRealizedOverrides = (next: Record<string, RealizedOverride>) => {
+    setRealizedOverrides(next)
+    localStorage.setItem(REALIZED_STORAGE, JSON.stringify(next))
   }
   const saveProduct = (product: Product) => {
     const existing = products.find(item => item.id === product.id)
@@ -317,8 +339,12 @@ export function App() {
   const setExpectedPrice = (productId: string, value: number) => {
     persistProducts(products.map(product => product.id === productId ? { ...product, expectedPrice: value } : product))
   }
-  const setManualUnitCost = (productId: string, value?: number) => {
-    persistProducts(products.map(product => product.id === productId ? { ...product, manualUnitCost: value && value > 0 ? value : undefined } : product))
+  const saveRealizedOverride = (productId: string, value: RealizedOverride) => {
+    const next = { ...realizedOverrides }
+    if (value.cost === undefined && value.sale === undefined) delete next[productId]
+    else next[productId] = value
+    persistRealizedOverrides(next)
+    setRealizedModal(null)
   }
   const hideCollectionProduct = (product: Product) => {
     if (confirm(`「${product.name}」をコレクションから外しますか？\n購入・売却履歴は削除されません。`)) {
@@ -416,16 +442,12 @@ export function App() {
               <button className="master-info" onClick={() => setProductModal(item.product)}>
                 <strong>{item.product.name}</strong><small>{item.product.category} · 在庫 {item.stock.toLocaleString()}個</small>
               </button>
+              <label className="price-input"><span>想定売価</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => setExpectedPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
               <button className="row-edit" aria-label={`${item.product.name}の商品情報を編集`} onClick={() => setProductModal(item.product)}><Pencil size={14} /></button>
-              <div className="master-prices">
-                <label className="price-input cost-input"><span>手動原価（1個）</span><b>¥</b><input aria-label={`${item.product.name}の手動原価`} inputMode="numeric" value={item.product.manualUnitCost || ''} placeholder={item.buyQty ? Math.round(item.buyCost / item.buyQty).toLocaleString('ja-JP') : '自動計算'} onChange={event => { const raw = event.target.value.replace(/\D/g, ''); setManualUnitCost(item.product.id, raw ? Number(raw) : undefined) }} /></label>
-                <label className="price-input"><span>想定売価（1個）</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => setExpectedPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
-              </div>
             </article>)}
             {!stats.length && <div className="empty">商品情報がありません。</div>}
           </div>
           {stats.length > 8 && <button className="wide-more" onClick={() => setShowAllProducts(value => !value)}>{showAllProducts ? '折りたたむ' : `すべて表示（${stats.length}商品）`} <ChevronDown size={15} /></button>}
-          <p className="calculation-note">手動原価は損益計算だけに使用され、購入履歴の金額や総支出額には反映されません。空欄にすると購入履歴から自動計算します。</p>
         </section>
 
         <section className="section">
@@ -437,16 +459,16 @@ export function App() {
               <div><span>実現損益</span><strong className={totals.realizedProfit >= 0 ? 'positive' : 'negative'}>{signedYen(totals.realizedProfit)}</strong></div>
             </div>
             <div className="realized-head"><span>商品</span><span>購入原価</span><span>売却額</span><span>損益</span></div>
-            {displayedSold.map(item => <button className="realized-row" key={item.product.id} onClick={() => { setQuery(item.product.name); setCategoryFilter('すべて'); setTab('sell') }}>
-              <span><strong>{item.product.name}</strong><small>{item.sellQty}個売却</small></span>
-              <b className={item.soldCost === null ? 'warning' : ''}>{item.soldCost === null ? '未確認' : yen(item.soldCost)}</b>
-              <b>{yen(item.saleNet)}</b>
-              <b className={item.realizedProfit === null ? 'warning' : item.realizedProfit >= 0 ? 'positive' : 'negative'}>{item.realizedProfit === null ? '—' : signedYen(item.realizedProfit)}</b>
-            </button>)}
+            {displayedSold.map(item => { const values = realizedValues(item); return <button className={`realized-row ${values.overridden ? 'overridden' : ''}`} key={item.product.id} onClick={() => setRealizedModal(item)}>
+              <span><strong>{item.product.name}</strong><small>{item.sellQty}個売却 · クリックして編集{values.overridden ? ' · 手動設定' : ''}</small></span>
+              <b className={values.cost === null ? 'warning' : ''}>{values.cost === null ? '未確認' : yen(values.cost)}</b>
+              <b>{yen(values.sale)}</b>
+              <b className={values.profit === null ? 'warning' : values.profit >= 0 ? 'positive' : 'negative'}>{values.profit === null ? '—' : signedYen(values.profit)}</b>
+            </button> })}
             {!soldStats.length && <div className="empty">売却履歴がありません。</div>}
           </div>
           {soldStats.length > 5 && <button className="wide-more" onClick={() => setShowAllSold(value => !value)}>{showAllSold ? '折りたたむ' : `すべて表示（${soldStats.length}商品）`} <ChevronDown size={15} /></button>}
-          <p className="calculation-note">購入原価は加重平均単価 × 売却数量で計算します。</p>
+          <p className="calculation-note">商品をクリックすると売却分の購入原価と売却額を手動設定できます。設定値はこの損益表示だけに使用され、購入・売却履歴の合計金額は変わりません。</p>
         </section>
       </>}
 
@@ -515,6 +537,12 @@ export function App() {
       onSave={saveManualCard}
       onDelete={deleteManualCard}
       onRestore={restoreCollectionProduct}
+    />}
+    {realizedModal && <RealizedProfitModal
+      item={realizedModal}
+      override={realizedOverrides[realizedModal.product.id]}
+      onClose={() => setRealizedModal(null)}
+      onSave={value => saveRealizedOverride(realizedModal.product.id, value)}
     />}
   </div>
 }
@@ -595,6 +623,38 @@ function ProductPickerModal({ type, stats, onClose, onSelect }: {
   </div>
 }
 
+function RealizedProfitModal({ item, override, onClose, onSave }: {
+  item: ProductStats
+  override?: RealizedOverride
+  onClose: () => void
+  onSave: (value: RealizedOverride) => void
+}) {
+  const [cost, setCost] = useState(override?.cost !== undefined ? String(override.cost) : '')
+  const [sale, setSale] = useState(override?.sale !== undefined ? String(override.sale) : '')
+  const automaticCost = item.soldCost
+  const automaticSale = item.saleNet
+  const previewCost = cost === '' ? automaticCost : Number(cost)
+  const previewSale = sale === '' ? automaticSale : Number(sale)
+  const previewProfit = previewCost === null ? null : previewSale - previewCost
+  return <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <form className="modal" onSubmit={event => {
+      event.preventDefault()
+      onSave({ cost: cost === '' ? undefined : Number(cost), sale: sale === '' ? undefined : Number(sale) })
+    }}>
+      <div className="modal-head"><div><p className="eyebrow">REALIZED PROFIT</p><h2>売却損益を編集</h2></div><button type="button" onClick={onClose}><X /></button></div>
+      <div className="selected-product"><span>{item.product.category} · {item.sellQty}個売却</span><strong>{item.product.name}</strong></div>
+      <div className="form-grid">
+        <label className="field">購入原価（売却分）<input inputMode="numeric" value={cost} onChange={event => setCost(event.target.value.replace(/\D/g, ''))} placeholder={automaticCost === null ? '未確認' : String(Math.round(automaticCost))} /></label>
+        <label className="field">売却額<input inputMode="numeric" value={sale} onChange={event => setSale(event.target.value.replace(/\D/g, ''))} placeholder={String(Math.round(automaticSale))} /></label>
+      </div>
+      <div className="profit-preview"><span>実現損益</span><strong className={previewProfit === null ? 'warning' : previewProfit >= 0 ? 'positive' : 'negative'}>{previewProfit === null ? '原価未確認' : signedYen(previewProfit)}</strong></div>
+      <p className="modal-note">ここで設定した金額はホームの売却損益だけに反映されます。購入履歴・売却履歴・総購入費用・総売却額は変更されません。</p>
+      <button className="submit-button" type="submit">損益設定を保存</button>
+      {override && <button className="secondary-button" type="button" onClick={() => onSave({})}>自動計算に戻す</button>}
+    </form>
+  </div>
+}
+
 function CollectionPage({ stats, manualCards, onEditPrice, onAdd, onEditManual, onHideProduct }: {
   stats: ProductStats[]
   manualCards: ManualCollectionCard[]
@@ -671,7 +731,7 @@ function ProductModal({ product, onClose, onSave, onDelete }: {
     <form className="modal" onSubmit={event => {
       event.preventDefault()
       if (!name.trim()) return
-      onSave({ id: product?.id || crypto.randomUUID(), name: name.trim(), category, expectedPrice: product?.expectedPrice || 0, manualUnitCost: product?.manualUnitCost })
+      onSave({ id: product?.id || crypto.randomUUID(), name: name.trim(), category, expectedPrice: product?.expectedPrice || 0 })
     }}>
       <div className="modal-head"><div><p className="eyebrow">PRODUCT INFO</p><h2>{product ? '商品情報を編集' : '商品を追加'}</h2></div><button type="button" onClick={onClose}><X /></button></div>
       <label className="field">商品名<input value={name} onChange={event => setName(event.target.value)} placeholder="例：イーブイex SAR" autoFocus /></label>
