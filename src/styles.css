@@ -133,6 +133,8 @@ button { color: inherit; }
 .page h1 { margin: 0; font-size: 29px; letter-spacing: -1px; }
 .page-description { margin: 0 0 15px; color: #8c9089; font-size: 10px; line-height: 1.5; }
 .export-button { padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: white; }
+.page-actions { display: flex; align-items: center; gap: 6px; }
+.register-button { padding: 8px 10px; display: inline-flex; align-items: center; gap: 4px; color: white; border: 0; border-radius: 9px; background: var(--ink); font-size: 9px; font-weight: 800; }
 .search-box { height: 46px; display: flex; align-items: center; gap: 9px; padding: 0 13px; color: #8d918b; border-radius: 13px; background: #eef0eb; }
 .search-box input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .category-chips { display: flex; gap: 7px; overflow-x: auto; padding: 11px 0; scrollbar-width: none; }
@@ -160,8 +162,12 @@ button { color: inherit; }
 .history-toggle:disabled { opacity: .25; }
 .history-toggle.active svg { transform: rotate(180deg); }
 .trade-history { padding: 4px 8px 8px; background: #f5f6f2; }
-.trade-history button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 75px 24px; align-items: center; gap: 6px; padding: 9px; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
-.trade-history button:last-child { border-bottom: 0; }
+.history-add-row { min-height: 39px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 4px 6px 9px; border-bottom: 1px solid var(--line); }
+.history-add-row > span { color: #858a82; font-size: 8px; font-weight: 700; }
+.history-add-row > button { width: auto; display: inline-flex; grid-template-columns: none; align-items: center; gap: 4px; padding: 7px 9px; color: white; border: 0; border-radius: 8px; background: var(--ink); font-size: 8px; font-weight: 800; }
+.history-add-row > button:disabled { opacity: .35; }
+.trade-history > button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 75px 24px; align-items: center; gap: 6px; padding: 10px 9px; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
+.trade-history > button:last-child { border-bottom: 0; }
 .trade-history span { min-width: 0; }
 .trade-history strong, .trade-history small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trade-history strong { font-size: 9px; }
@@ -213,6 +219,14 @@ button { color: inherit; }
 .submit-button, .delete-button { width: 100%; padding: 14px; display: flex; align-items: center; justify-content: center; gap: 5px; border-radius: 11px; font-size: 11px; font-weight: 800; }
 .submit-button { margin-top: 18px; color: white; border: 0; background: var(--ink); }
 .delete-button { margin-top: 8px; color: var(--red); border: 1px solid #f0d8d4; background: #fff7f5; }
+.picker-modal { min-height: 55dvh; }
+.picker-list { max-height: 56dvh; overflow-y: auto; margin-top: 11px; border: 1px solid var(--line); border-radius: 13px; background: white; }
+.picker-list button { width: 100%; padding: 12px 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: white; }
+.picker-list button:last-child { border-bottom: 0; }
+.picker-list span { min-width: 0; }
+.picker-list strong, .picker-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-list strong { font-size: 11px; }
+.picker-list small { margin-top: 3px; color: var(--muted); font-size: 8px; }
 .empty { padding: 30px 10px; color: #999d96; text-align: center; font-size: 10px; }
 
 @keyframes modal-up { from { opacity: 0; transform: translateY(35px); } }

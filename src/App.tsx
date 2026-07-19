@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   ChevronDown,
+  ChevronRight,
   CircleDollarSign,
   Download,
   Home,
@@ -144,8 +145,16 @@ function createProductsFromTrades(trades: Trade[]): Product[] {
 function readProducts(trades: Trade[]): Product[] {
   try {
     const saved = localStorage.getItem(PRODUCT_STORAGE)
-    if (saved) return JSON.parse(saved)
-    const products = createProductsFromTrades(trades)
+    const savedProducts: Product[] = saved ? JSON.parse(saved) : []
+    const savedIds = new Set(savedProducts.map(product => product.id))
+    const unlinkedTrades = trades.filter(trade => !trade.productId || !savedIds.has(trade.productId))
+    const derivedProducts = createProductsFromTrades(unlinkedTrades)
+    const merged = [...savedProducts]
+    derivedProducts.forEach(product => {
+      const alreadyExists = merged.some(savedProduct => savedProduct.category === product.category && normalize(savedProduct.name) === normalize(product.name))
+      if (!alreadyExists) merged.push({ ...product, id: `migrated-product-${merged.length + 1}` })
+    })
+    const products = merged.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
     localStorage.setItem(PRODUCT_STORAGE, JSON.stringify(products))
     return products
   } catch {
@@ -188,6 +197,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('home')
   const [productModal, setProductModal] = useState<Product | 'new' | null>(null)
   const [tradeModal, setTradeModal] = useState<{ product: Product; type: 'buy' | 'sell'; trade: Trade | null } | null>(null)
+  const [pickerType, setPickerType] = useState<'buy' | 'sell' | null>(null)
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<ProductCategory | 'すべて'>('すべて')
   const [historyKey, setHistoryKey] = useState<string | null>(null)
@@ -297,6 +307,14 @@ export function App() {
     anchor.click()
     URL.revokeObjectURL(url)
   }
+  const openTab = (nextTab: Tab) => {
+    setTab(nextTab)
+    if (nextTab === 'buy' || nextTab === 'sell') {
+      setQuery('')
+      setCategoryFilter('すべて')
+      setHistoryKey(null)
+    }
+  }
 
   return <div className="app-shell">
     <header className="topbar">
@@ -365,7 +383,7 @@ export function App() {
 
       {(tab === 'buy' || tab === 'sell') && <TransactionPage
         type={tab}
-        stats={filteredStats}
+        stats={filteredStats.filter(item => tab === 'buy' ? item.buyTrades.length > 0 : item.sellTrades.length > 0)}
         query={query}
         categoryFilter={categoryFilter}
         historyKey={historyKey}
@@ -374,6 +392,7 @@ export function App() {
         onHistory={setHistoryKey}
         onAdd={(product, type) => setTradeModal({ product, type, trade: null })}
         onEdit={(product, type, trade) => setTradeModal({ product, type, trade })}
+        onRegister={() => setPickerType(tab)}
         onExport={() => exportCsv(tab)}
       />}
 
@@ -381,10 +400,10 @@ export function App() {
     </main>
 
     <nav className="bottom-nav">
-      <button className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}><Home /><span>ホーム</span></button>
-      <button className={tab === 'buy' ? 'active' : ''} onClick={() => setTab('buy')}><ShoppingBag /><span>購入</span></button>
-      <button className={tab === 'sell' ? 'active' : ''} onClick={() => setTab('sell')}><CircleDollarSign /><span>売却</span></button>
-      <button className={tab === 'collection' ? 'active' : ''} onClick={() => setTab('collection')}><Images /><span>コレクション</span></button>
+      <button className={tab === 'home' ? 'active' : ''} onClick={() => openTab('home')}><Home /><span>ホーム</span></button>
+      <button className={tab === 'buy' ? 'active' : ''} onClick={() => openTab('buy')}><ShoppingBag /><span>購入</span></button>
+      <button className={tab === 'sell' ? 'active' : ''} onClick={() => openTab('sell')}><CircleDollarSign /><span>売却</span></button>
+      <button className={tab === 'collection' ? 'active' : ''} onClick={() => openTab('collection')}><Images /><span>コレクション</span></button>
     </nav>
 
     {productModal && <ProductModal
@@ -402,11 +421,21 @@ export function App() {
       onSave={saveTrade}
       onDelete={trade => deleteTrade(trade, tradeModal.product)}
     />}
+    {pickerType && <ProductPickerModal
+      type={pickerType}
+      stats={stats}
+      onClose={() => setPickerType(null)}
+      onSelect={product => {
+        const type = pickerType
+        setPickerType(null)
+        setTradeModal({ product, type, trade: null })
+      }}
+    />}
   </div>
 }
 
 function TransactionPage({
-  type, stats, query, categoryFilter, historyKey, onQuery, onCategory, onHistory, onAdd, onEdit, onExport,
+  type, stats, query, categoryFilter, historyKey, onQuery, onCategory, onHistory, onAdd, onEdit, onRegister, onExport,
 }: {
   type: 'buy' | 'sell'
   stats: ProductStats[]
@@ -418,12 +447,13 @@ function TransactionPage({
   onHistory: (value: string | null) => void
   onAdd: (product: Product, type: 'buy' | 'sell') => void
   onEdit: (product: Product, type: 'buy' | 'sell', trade: Trade) => void
+  onRegister: () => void
   onExport: () => void
 }) {
   const isBuy = type === 'buy'
   return <section className="page section transaction-page">
-    <div className="page-title-row"><div><p className="eyebrow">{isBuy ? 'PURCHASE' : 'SALES'}</p><h1>{isBuy ? '購入' : '売却'}</h1></div><button className="export-button" onClick={onExport}><Download size={15} /> CSV</button></div>
-    <p className="page-description">{isBuy ? '商品を選択して購入履歴を追加します。' : '在庫のある商品を選択して売却履歴を追加します。'}</p>
+    <div className="page-title-row"><div><p className="eyebrow">{isBuy ? 'PURCHASE HISTORY' : 'SALES HISTORY'}</p><h1>{isBuy ? '購入履歴' : '売却履歴'}</h1></div><div className="page-actions"><button className="register-button" onClick={onRegister}><Plus size={15} /> 履歴登録</button><button className="export-button" onClick={onExport}><Download size={15} /> CSV</button></div></div>
+    <p className="page-description">{isBuy ? '登録済みの商品を選んで購入履歴を登録・管理します。' : '在庫のある商品を選んで売却履歴を登録・管理します。'}</p>
     <div className="search-box"><Search size={17} /><input value={query} onChange={event => onQuery(event.target.value)} placeholder="商品名を検索" /></div>
     <div className="category-chips">{(['すべて', ...productCategories] as const).map(category => <button className={categoryFilter === category ? 'active' : ''} key={category} onClick={() => onCategory(category)}>{category}</button>)}</div>
     <div className={`ledger-head ${isBuy ? 'buy' : 'sell'}`}><span>商品名 / カテゴリー</span>{isBuy ? <><span>購入数</span><span>合計</span></> : <><span>在庫</span><span>売却数</span><span>合計</span></>}<span /></div>
@@ -441,17 +471,39 @@ function TransactionPage({
             <button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} disabled={!histories.length} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button>
           </div>
           {historyKey === key && <div className="trade-history">
+            <div className="history-add-row"><span>{isBuy ? '購入履歴' : '売却履歴'} · {histories.length}件</span><button disabled={!isBuy && !canSell} onClick={() => onAdd(item.product, type)}><Plus size={13} /> {isBuy ? '購入履歴を追加' : '売却履歴を追加'}</button></div>
             {histories.map(trade => <button key={trade.id} onClick={() => onEdit(item.product, type, trade)}>
-              <span><strong>{trade.date || '日付未入力'}</strong><small>{sourceLabel(trade.source)} · {trade.quantity}個{trade.points ? ` · ${trade.points.toLocaleString()}p` : ''}</small></span>
+              <span><strong>{trade.date || '日付未入力'}</strong><small>{sourceLabel(trade.source)} · {trade.quantity}個 · 単価 {yen((trade.amount + (isBuy ? trade.points : 0)) / trade.quantity)}{trade.points ? ` · ${trade.points.toLocaleString()}p使用` : ''}</small></span>
               <b>{yen(trade.amount)}</b><Pencil size={13} />
             </button>)}
           </div>}
         </article>
       })}
-      {!stats.length && <div className="empty">条件に一致する商品がありません。</div>}
+      {!stats.length && <div className="empty">{isBuy ? '購入履歴がありません。' : '売却履歴がありません。'}<br />上の「履歴登録」から追加できます。</div>}
     </div>
-    <p className="page-hint">商品がない場合は、ホームの「商品追加」から先に商品情報を登録してください。</p>
+    <p className="page-hint">履歴を登録する商品がない場合は、ホームの「商品追加」から先に商品情報を登録してください。</p>
   </section>
+}
+
+function ProductPickerModal({ type, stats, onClose, onSelect }: {
+  type: 'buy' | 'sell'
+  stats: ProductStats[]
+  onClose: () => void
+  onSelect: (product: Product) => void
+}) {
+  const [query, setQuery] = useState('')
+  const isBuy = type === 'buy'
+  const available = stats.filter(item => isBuy || item.stock > 0).filter(item => `${item.product.name} ${item.product.category}`.toLocaleLowerCase('ja-JP').includes(query.toLocaleLowerCase('ja-JP')))
+  return <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <section className="modal picker-modal">
+      <div className="modal-head"><div><p className="eyebrow">SELECT PRODUCT</p><h2>{isBuy ? '購入する商品を選択' : '売却する商品を選択'}</h2></div><button type="button" onClick={onClose}><X /></button></div>
+      <div className="search-box"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="商品名を検索" autoFocus /></div>
+      <div className="picker-list">{available.map(item => <button key={item.product.id} onClick={() => onSelect(item.product)}>
+        <span><strong>{item.product.name}</strong><small>{item.product.category}{isBuy ? ` · 購入累計 ${item.buyQty}個` : ` · 在庫 ${item.stock}個`}</small></span><ChevronRight size={16} />
+      </button>)}</div>
+      {!available.length && <div className="empty">{isBuy ? '商品が見つかりません。' : '売却可能な在庫がありません。'}</div>}
+    </section>
+  </div>
 }
 
 function CollectionPage({ stats, onEditPrice }: { stats: ProductStats[]; onEditPrice: (id: string, value: number) => void }) {
