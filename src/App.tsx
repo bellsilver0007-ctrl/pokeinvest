@@ -22,6 +22,7 @@ type Product = {
   name: string
   category: ProductCategory
   expectedPrice: number
+  manualUnitCost?: number
 }
 type ManualCollectionCard = {
   id: string
@@ -211,9 +212,10 @@ function calculateStats(product: Product, trades: Trade[]): ProductStats {
   const buyCost = buyTrades.reduce((sum, trade) => sum + trade.amount + trade.points + (trade.fee || 0) + (trade.shipping || 0), 0)
   const sellAmount = sellTrades.reduce((sum, trade) => sum + trade.amount, 0)
   const saleNet = sellTrades.reduce((sum, trade) => sum + trade.amount - (trade.fee || 0) - (trade.shipping || 0), 0)
-  const validCost = buyQty > 0 && buyQty >= sellQty
-  const averageCost = buyQty > 0 ? buyCost / buyQty : null
-  const soldCost = validCost ? (averageCost || 0) * sellQty : null
+  const automaticAverageCost = buyQty > 0 ? buyCost / buyQty : null
+  const averageCost = product.manualUnitCost && product.manualUnitCost > 0 ? product.manualUnitCost : automaticAverageCost
+  const validCost = Boolean(product.manualUnitCost && product.manualUnitCost > 0) || (buyQty > 0 && buyQty >= sellQty)
+  const soldCost = validCost && averageCost !== null ? averageCost * sellQty : null
   const stock = Math.max(0, buyQty - sellQty)
   const remainingCost = validCost ? (averageCost || 0) * stock : null
   const realizedProfit = soldCost === null ? null : saleNet - soldCost
@@ -315,6 +317,9 @@ export function App() {
   const setExpectedPrice = (productId: string, value: number) => {
     persistProducts(products.map(product => product.id === productId ? { ...product, expectedPrice: value } : product))
   }
+  const setManualUnitCost = (productId: string, value?: number) => {
+    persistProducts(products.map(product => product.id === productId ? { ...product, manualUnitCost: value && value > 0 ? value : undefined } : product))
+  }
   const hideCollectionProduct = (product: Product) => {
     if (confirm(`「${product.name}」をコレクションから外しますか？\n購入・売却履歴は削除されません。`)) {
       persistCollection({ ...collection, hiddenProductIds: [...new Set([...collection.hiddenProductIds, product.id])] })
@@ -411,12 +416,16 @@ export function App() {
               <button className="master-info" onClick={() => setProductModal(item.product)}>
                 <strong>{item.product.name}</strong><small>{item.product.category} · 在庫 {item.stock.toLocaleString()}個</small>
               </button>
-              <label className="price-input"><span>想定売価</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => setExpectedPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
               <button className="row-edit" aria-label={`${item.product.name}の商品情報を編集`} onClick={() => setProductModal(item.product)}><Pencil size={14} /></button>
+              <div className="master-prices">
+                <label className="price-input cost-input"><span>手動原価（1個）</span><b>¥</b><input aria-label={`${item.product.name}の手動原価`} inputMode="numeric" value={item.product.manualUnitCost || ''} placeholder={item.buyQty ? Math.round(item.buyCost / item.buyQty).toLocaleString('ja-JP') : '自動計算'} onChange={event => { const raw = event.target.value.replace(/\D/g, ''); setManualUnitCost(item.product.id, raw ? Number(raw) : undefined) }} /></label>
+                <label className="price-input"><span>想定売価（1個）</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => setExpectedPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
+              </div>
             </article>)}
             {!stats.length && <div className="empty">商品情報がありません。</div>}
           </div>
           {stats.length > 8 && <button className="wide-more" onClick={() => setShowAllProducts(value => !value)}>{showAllProducts ? '折りたたむ' : `すべて表示（${stats.length}商品）`} <ChevronDown size={15} /></button>}
+          <p className="calculation-note">手動原価は損益計算だけに使用され、購入履歴の金額や総支出額には反映されません。空欄にすると購入履歴から自動計算します。</p>
         </section>
 
         <section className="section">
@@ -662,7 +671,7 @@ function ProductModal({ product, onClose, onSave, onDelete }: {
     <form className="modal" onSubmit={event => {
       event.preventDefault()
       if (!name.trim()) return
-      onSave({ id: product?.id || crypto.randomUUID(), name: name.trim(), category, expectedPrice: product?.expectedPrice || 0 })
+      onSave({ id: product?.id || crypto.randomUUID(), name: name.trim(), category, expectedPrice: product?.expectedPrice || 0, manualUnitCost: product?.manualUnitCost })
     }}>
       <div className="modal-head"><div><p className="eyebrow">PRODUCT INFO</p><h2>{product ? '商品情報を編集' : '商品を追加'}</h2></div><button type="button" onClick={onClose}><X /></button></div>
       <label className="field">商品名<input value={name} onChange={event => setName(event.target.value)} placeholder="例：イーブイex SAR" autoFocus /></label>

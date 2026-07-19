@@ -96,7 +96,7 @@ button { color: inherit; }
 .info-note, .calculation-note, .page-hint { margin: 8px 3px 0; color: #939790; font-size: 8px; line-height: 1.55; }
 
 .product-master { overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: white; }
-.master-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px 30px; align-items: center; gap: 8px; padding: 11px 10px 11px 13px; border-bottom: 1px solid var(--line); }
+.master-row { display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; gap: 8px; padding: 11px 10px 11px 13px; border-bottom: 1px solid var(--line); }
 .master-row:last-child { border-bottom: 0; }
 .master-info, .row-edit { border: 0; background: transparent; }
 .master-info { min-width: 0; padding: 0; text-align: left; }
@@ -109,6 +109,8 @@ button { color: inherit; }
 .price-input input { width: 100%; height: 29px; padding: 5px 6px 5px 20px; border: 1px solid #dcdfd8; border-radius: 8px; outline: 0; background: #fafbf7; font-size: 10px; text-align: right; }
 .price-input input:focus { border-color: #8d938a; background: white; }
 .row-edit { width: 29px; height: 29px; padding: 0; display: grid; place-items: center; color: #72766f; border: 1px solid var(--line); border-radius: 8px; }
+.master-prices { grid-column: 1/-1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 3px; }
+.cost-input input { color: #9b681f; border-color: #ead9bd; background: #fffbf3; }
 .wide-more { width: 100%; margin-top: 8px; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 4px; color: #747970; border: 0; border-radius: 10px; background: #eff1ec; font-size: 9px; }
 
 .realized-card { overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: white; }
@@ -248,7 +250,7 @@ button { color: inherit; }
   .realized-row b { font-size: 7px; }
   .ledger-head.buy, .ledger-main.buy { grid-template-columns: minmax(92px, 1fr) 47px 67px 30px; }
   .ledger-head.sell, .ledger-main.sell { grid-template-columns: minmax(85px, 1fr) 34px 38px 62px 30px; }
-  .master-row { grid-template-columns: minmax(0, 1fr) 94px 29px; }
+  .master-row { grid-template-columns: minmax(0, 1fr) 29px; }
 }
 
 @media (min-width: 700px) {
