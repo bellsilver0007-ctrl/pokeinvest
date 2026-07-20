@@ -32,6 +32,7 @@ type Product = {
   expectedPrice: number
 }
 type RealizedOverride = { cost?: number; sale?: number }
+type RealizedDisplay = { cost: number | null; sale: number; profit: number | null; overridden: boolean }
 type ManualCollectionCard = {
   id: string
   name: string
@@ -348,7 +349,6 @@ export function App() {
   const [sourceFilter, setSourceFilter] = useState<string>('すべて')
   const [historyKey, setHistoryKey] = useState<string | null>(null)
   const [showAllProducts, setShowAllProducts] = useState(false)
-  const [showAllSold, setShowAllSold] = useState(false)
   const hasOpenModal = Boolean(productModal || tradeModal || entryType || collectionModal || realizedModal)
 
   useEffect(() => {
@@ -376,7 +376,7 @@ export function App() {
   const activeSources = sources.filter(source => source.active).sort((a, b) => a.sortOrder - b.sortOrder)
   const categoryNameForProduct = (product: Product) => categories.find(category => category.id === product.categoryId)?.name || product.category
   const productHasActiveCategory = (product: Product) => activeCategories.some(category => category.id === product.categoryId || (!product.categoryId && normalize(category.name) === normalize(product.category)))
-  const realizedValues = (item: ProductStats) => {
+  const realizedValues = (item: ProductStats): RealizedDisplay => {
     const override = realizedOverrides[item.product.id]
     const cost = override?.cost !== undefined ? override.cost : item.soldCost
     const sale = override?.sale !== undefined ? override.sale : item.saleNet
@@ -386,17 +386,11 @@ export function App() {
     const soldItems = stats.filter(item => item.sellQty > 0).map(item => ({ item, values: realizedValues(item) }))
     const confirmedSales = soldItems.filter(entry => entry.values.profit !== null)
     const realizedProfit = confirmedSales.reduce((sum, entry) => sum + (entry.values.profit || 0), 0)
-    const realizedSales = confirmedSales.reduce((sum, entry) => sum + entry.values.sale, 0)
-    const realizedCost = confirmedSales.reduce((sum, entry) => sum + (entry.values.cost || 0), 0)
     const potentialValue = stats.reduce((sum, item) => sum + item.potentialValue, 0)
     const remainingCost = stats.reduce((sum, item) => sum + (item.remainingCost || 0), 0)
     const potentialProfit = stats.filter(item => item.potentialProfit !== null).reduce((sum, item) => sum + (item.potentialProfit || 0), 0)
     return {
-      confirmedSales: confirmedSales.length,
-      soldProducts: soldItems.length,
       realizedProfit,
-      realizedSales,
-      realizedCost,
       potentialValue,
       remainingCost,
       potentialProfit,
@@ -405,13 +399,7 @@ export function App() {
   }, [stats, realizedOverrides])
   const inStock = stats.filter(item => item.stock > 0)
   const pricedStock = inStock.filter(item => item.product.expectedPrice > 0)
-  const soldStats = stats.filter(item => item.sellQty > 0).sort((a, b) => {
-    const latestA = Math.max(...a.sellTrades.map(tradeTime))
-    const latestB = Math.max(...b.sellTrades.map(tradeTime))
-    return latestB - latestA
-  })
   const displayedProducts = showAllProducts ? stats : stats.slice(0, 8)
-  const displayedSold = showAllSold ? soldStats : soldStats.slice(0, 5)
   const filteredStats = stats.filter(item => {
     const productCategoryId = item.product.categoryId || categoryForName(categories, item.product.category)?.id
     const matchesCategory = categoryFilter === 'すべて' || productCategoryId === categoryFilter
@@ -645,26 +633,6 @@ export function App() {
           {stats.length > 8 && <button className="wide-more" onClick={() => setShowAllProducts(value => !value)}>{showAllProducts ? '折りたたむ' : `すべて表示（${stats.length}商品）`} <ChevronDown size={15} /></button>}
         </section>
 
-        <section className="section">
-          <div className="section-head"><div><p className="eyebrow">REALIZED PROFIT</p><h2>売却済み商品</h2></div><span className="count-label">原価確認 {totals.confirmedSales}/{totals.soldProducts}</span></div>
-          <div className="realized-card">
-            <div className="realized-summary">
-              <div><span>購入原価</span><strong>{yen(totals.realizedCost)}</strong></div>
-              <div><span>売却額</span><strong>{yen(totals.realizedSales)}</strong></div>
-              <div><span>実現損益</span><strong className={totals.realizedProfit >= 0 ? 'positive' : 'negative'}>{signedYen(totals.realizedProfit)}</strong></div>
-            </div>
-            <div className="realized-head"><span>商品</span><span>購入原価</span><span>売却額</span><span>損益</span></div>
-            {displayedSold.map(item => { const values = realizedValues(item); return <button className={`realized-row ${values.overridden ? 'overridden' : ''}`} key={item.product.id} onClick={() => setRealizedModal(item)}>
-              <span><strong>{item.product.name}</strong><small>{item.sellQty}個売却 · クリックして編集{values.overridden ? ' · 手動設定' : ''}</small></span>
-              <b className={values.cost === null ? 'warning' : ''}>{values.cost === null ? '未確認' : yen(values.cost)}</b>
-              <b>{yen(values.sale)}</b>
-              <b className={values.profit === null ? 'warning' : values.profit >= 0 ? 'positive' : 'negative'}>{values.profit === null ? '—' : signedYen(values.profit)}</b>
-            </button> })}
-            {!soldStats.length && <div className="empty">売却履歴がありません。</div>}
-          </div>
-          {soldStats.length > 5 && <button className="wide-more" onClick={() => setShowAllSold(value => !value)}>{showAllSold ? '折りたたむ' : `すべて表示（${soldStats.length}商品）`} <ChevronDown size={15} /></button>}
-          <p className="calculation-note">商品をクリックすると売却分の購入原価と売却額を手動設定できます。設定値はこの損益表示だけに使用され、購入・売却履歴の合計金額は変わりません。</p>
-        </section>
       </>}
 
       {tab === 'transactions' && <TransactionPage
@@ -684,6 +652,8 @@ export function App() {
         onAdd={(product, type) => setTradeModal({ product, type, trade: null })}
         onEdit={(product, type, trade) => setTradeModal({ product, type, trade })}
         onDelete={(product, trade) => deleteTrade(trade, product)}
+        getRealizedValues={realizedValues}
+        onEditRealized={setRealizedModal}
         onRegister={() => setEntryType(transactionSide)}
         onExport={() => exportCsv(transactionSide)}
       />}
@@ -751,13 +721,14 @@ export function App() {
 
 function TransactionPage({
   type, onType, stats, query, categoryFilter, sourceFilter, categories, sources, historyKey,
-  onQuery, onCategory, onSource, onHistory, onAdd, onEdit, onDelete, onRegister, onExport,
+  onQuery, onCategory, onSource, onHistory, onAdd, onEdit, onDelete, getRealizedValues, onEditRealized, onRegister, onExport,
 }: {
   type: 'buy' | 'sell'; onType: (value: 'buy' | 'sell') => void; stats: ProductStats[]; query: string
   categoryFilter: string; sourceFilter: string; categories: CategoryMaster[]; sources: SourceMaster[]; historyKey: string | null
   onQuery: (value: string) => void; onCategory: (value: string) => void; onSource: (value: string) => void
   onHistory: (value: string | null) => void; onAdd: (product: Product, type: 'buy' | 'sell') => void
   onEdit: (product: Product, type: 'buy' | 'sell', trade: Trade) => void; onDelete: (product: Product, trade: Trade) => void
+  getRealizedValues: (item: ProductStats) => RealizedDisplay; onEditRealized: (item: ProductStats) => void
   onRegister: () => void; onExport: () => void
 }) {
   const [touchStart, setTouchStart] = useState<{ x: number; y: number; ignore: boolean } | null>(null)
@@ -768,11 +739,27 @@ function TransactionPage({
     const histories = isBuy ? item.buyTrades : item.sellTrades
     return histories.some(trade => sourceForTrade(trade, sources)?.id === sourceFilter)
   })
+  const historiesFor = (item: ProductStats) => (isBuy ? item.buyTrades : item.sellTrades).filter(trade => sourceFilter === 'すべて' || sourceForTrade(trade, sources)?.id === sourceFilter)
+  if (!isBuy) visibleStats.sort((a, b) => Math.max(...historiesFor(b).map(tradeTime)) - Math.max(...historiesFor(a).map(tradeTime)))
+  const saleValuesFor = (item: ProductStats, histories: Trade[]): RealizedDisplay => {
+    if (sourceFilter === 'すべて') return getRealizedValues(item)
+    const quantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
+    const sale = histories.reduce((sum, trade) => sum + trade.amount - (trade.fee || 0) - (trade.shipping || 0), 0)
+    const cost = item.soldCost === null || item.averageCost === null ? null : item.averageCost * quantity
+    return { cost, sale, profit: cost === null ? null : sale - cost, overridden: false }
+  }
+  const saleEntries = isBuy ? [] : visibleStats.map(item => ({ item, values: saleValuesFor(item, historiesFor(item)) }))
+  const confirmedSaleEntries = saleEntries.filter(entry => entry.values.profit !== null)
+  const saleSummary = {
+    cost: confirmedSaleEntries.reduce((sum, entry) => sum + (entry.values.cost || 0), 0),
+    sale: confirmedSaleEntries.reduce((sum, entry) => sum + entry.values.sale, 0),
+    profit: confirmedSaleEntries.reduce((sum, entry) => sum + (entry.values.profit || 0), 0),
+  }
   return <section className="page section transaction-page" onTouchStart={event => {
     const touch = event.touches[0]
     if (!touch) return
     const target = event.target as HTMLElement
-    setTouchStart({ x: touch.clientX, y: touch.clientY, ignore: Boolean(target.closest('.category-chips, input, select, .page-actions button, .transaction-switch button, .history-toggle, .history-edit, .history-delete, .history-add-row button')) })
+    setTouchStart({ x: touch.clientX, y: touch.clientY, ignore: Boolean(target.closest('.category-chips, input, select, .page-actions button, .transaction-switch button, .sale-card-actions button, .sale-profit-edit, .history-toggle, .history-edit, .history-delete, .history-add-row button')) })
   }} onTouchEnd={event => {
     if (!touchStart) return
     const touch = event.changedTouches[0]
@@ -789,25 +776,47 @@ function TransactionPage({
     <div className="category-chips"><button className={categoryFilter === 'すべて' ? 'active' : ''} onClick={() => onCategory('すべて')}>すべて</button>{categories.map(category => <button className={categoryFilter === category.id ? 'active' : ''} key={category.id} onClick={() => onCategory(category.id)}>{category.name}</button>)}</div>
     <div className="filter-label"><MapPin size={12} /> {isBuy ? '購入先' : '販売先'}</div>
     <div className="category-chips source-chips"><button className={sourceFilter === 'すべて' ? 'active' : ''} onClick={() => onSource('すべて')}>すべて</button>{sources.map(source => <button className={sourceFilter === source.id ? 'active' : ''} key={source.id} onClick={() => onSource(source.id)}>{source.name}</button>)}</div>
+    {!isBuy && <div className="sale-performance-card">
+      <div className="sale-performance-head"><span>売却済み商品の損益</span><b>原価確認 {confirmedSaleEntries.length}/{saleEntries.length}</b></div>
+      <div className="realized-summary">
+        <div><span>購入原価</span><strong>{yen(saleSummary.cost)}</strong></div>
+        <div><span>売却額</span><strong>{yen(saleSummary.sale)}</strong></div>
+        <div><span>実現損益</span><strong className={saleSummary.profit >= 0 ? 'positive' : 'negative'}>{signedYen(saleSummary.profit)}</strong></div>
+      </div>
+      {sourceFilter !== 'すべて' && <p>販売先で絞り込み中は自動計算値を表示します。手動設定の編集は「すべて」に戻して行えます。</p>}
+    </div>}
     <div className={`transaction-panel ${isBuy ? 'slide-buy' : 'slide-sell'}`}>
-      <div className={`ledger-head ${isBuy ? 'buy' : 'sell'}`}><span>商品名 / カテゴリー</span>{isBuy ? <><span>購入数</span><span>合計</span></> : <><span>在庫</span><span>売却数</span><span>合計</span></>}<span /></div>
-      <div className="ledger-products">
+      {isBuy && <div className="ledger-head buy"><span>商品名 / カテゴリー</span><span>購入数</span><span>合計</span><span /></div>}
+      <div className={`ledger-products ${isBuy ? '' : 'sale-ledger-products'}`}>
         {visibleStats.map(item => {
           const key = `${type}|${item.product.id}`
           const histories = (isBuy ? item.buyTrades : item.sellTrades).filter(trade => sourceFilter === 'すべて' || sourceForTrade(trade, sources)?.id === sourceFilter)
           const filteredQuantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
           const filteredAmount = histories.reduce((sum, trade) => sum + trade.amount, 0)
+          const saleValues = isBuy ? null : saleValuesFor(item, histories)
           const activeCategory = categories.find(category => category.id === item.product.categoryId || (!item.product.categoryId && normalize(category.name) === normalize(item.product.category)))
           const canAddTransaction = Boolean(activeCategory)
           const categoryName = activeCategory?.name || `${item.product.category}（削除済み）`
           return <article className="ledger-product" key={item.product.id}>
-            <div className={`ledger-main ${isBuy ? 'buy' : 'sell'}`}>
+            {isBuy ? <div className="ledger-main buy">
               <button className="ledger-add" disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}>
-                <span className="ledger-name"><strong>{item.product.name}</strong><small>{categoryName}{!isBuy && item.stock <= 0 ? ' · 在庫なし' : ''}</small></span>
-                {isBuy ? <><b>{filteredQuantity.toLocaleString()}</b><b>{yen(filteredAmount)}</b></> : <><b>{item.stock.toLocaleString()}</b><b>{filteredQuantity.toLocaleString()}</b><b>{yen(filteredAmount)}</b></>}
+                <span className="ledger-name"><strong>{item.product.name}</strong><small>{categoryName}</small></span>
+                <b>{filteredQuantity.toLocaleString()}</b><b>{yen(filteredAmount)}</b>
               </button>
               <button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button>
-            </div>
+            </div> : saleValues && <div className="sale-ledger-main">
+              <div className="sale-product-line">
+                <button className="sale-product-info" onClick={() => onHistory(historyKey === key ? null : key)}><strong>{item.product.name}</strong><small>{categoryName}{item.stock <= 0 ? ' · 在庫なし' : ''}</small></button>
+                <div className="sale-card-actions"><button className="sale-add-button" disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}><Plus size={13} /> 売却</button><button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button></div>
+              </div>
+              <div className="sale-activity-metrics"><span><small>在庫</small><strong>{item.stock.toLocaleString()}個</strong></span><span><small>販売数</small><strong>{filteredQuantity.toLocaleString()}個</strong></span><span><small>取引合計</small><strong>{yen(filteredAmount)}</strong></span></div>
+              <button className={`sale-profit-edit ${saleValues.overridden ? 'overridden' : ''}`} disabled={sourceFilter !== 'すべて'} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の売却損益を編集`}>
+                <span><small>購入原価</small><strong className={saleValues.cost === null ? 'warning' : ''}>{saleValues.cost === null ? '未確認' : yen(saleValues.cost)}</strong></span>
+                <span><small>売却純額</small><strong>{yen(saleValues.sale)}</strong></span>
+                <span><small>利益</small><strong className={saleValues.profit === null ? 'warning' : saleValues.profit >= 0 ? 'positive' : 'negative'}>{saleValues.profit === null ? '—' : signedYen(saleValues.profit)}</strong></span>
+                <span className="sale-edit-indicator">{sourceFilter !== 'すべて' ? '絞込中' : <>{saleValues.overridden && <em>手動</em>}<Pencil size={13} /></>}</span>
+              </button>
+            </div>}
             {historyKey === key && <div className="trade-history">
               <div className="history-add-row"><span>{isBuy ? '購入履歴' : '売却履歴'} · {histories.length}件</span><button disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}><Plus size={13} /> {isBuy ? '購入履歴を追加' : '売却履歴を追加'}</button></div>
               {histories.map(trade => <div className="trade-history-item" key={trade.id}>
@@ -820,7 +829,7 @@ function TransactionPage({
         {!visibleStats.length && <div className="empty">{isBuy ? '購入履歴がありません。' : '売却履歴がありません。'}<br />上の「履歴登録」から追加できます。</div>}
       </div>
     </div>
-    <p className="page-hint">新しい商品は「履歴登録」で商品情報と取引を同時に登録できます。</p>
+    <p className="page-hint">{isBuy ? '新しい商品は「履歴登録」で商品情報と取引を同時に登録できます。' : '購入原価・売却純額・利益の行を押すと、売却損益だけを手動設定できます。取引履歴の金額は変更されません。'}</p>
   </section>
 }
 
@@ -882,7 +891,7 @@ function TradeEntryModal({ type, products, stats, categories, sources, onClose, 
       {!isBuy && selectedStats && <small className={`field-help ${Number(quantity) > selectedStats.stock ? 'warning' : ''}`}>現在庫 {selectedStats.stock}個。{Number(quantity) > selectedStats.stock ? '在庫を超える分は原価未確認として記録されます。' : '購入履歴がない販売は原価未確認として記録されます。'}</small>}
     </div> : <div className="new-product-fields"><label className="field">商品名<input required value={name} onChange={event => setName(event.target.value)} placeholder="例：イーブイex SAR" /></label><label className="field">商品カテゴリー<select required value={categoryId} onChange={event => setCategoryId(event.target.value)}><option value="">選択してください</option>{categories.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>{!isBuy && <small className="field-help warning">購入履歴がないため、購入原価未確認の売却として記録されます。</small>}</div>}
     <div className="form-grid"><label className="field">数量<input required inputMode="numeric" value={quantity} onChange={event => setQuantity(event.target.value.replace(/\D/g, ''))} /></label><label className="field">総額（¥）<input inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label></div>
-    {needsUnconfirmedSale && <label className="unconfirmed-check"><input type="checkbox" checked={allowUnconfirmedSale} onChange={event => setAllowUnconfirmedSale(event.target.checked)} /><span><strong>在庫外売却として記録</strong><small>購入原価は未確認となり、ホームの売却損益から確認・編集できます。</small></span></label>}
+    {needsUnconfirmedSale && <label className="unconfirmed-check"><input type="checkbox" checked={allowUnconfirmedSale} onChange={event => setAllowUnconfirmedSale(event.target.checked)} /><span><strong>在庫外売却として記録</strong><small>購入原価は未確認となり、取引履歴の販売リストから確認・編集できます。</small></span></label>}
     {isBuy && <label className="field">使用ポイント<input inputMode="numeric" value={points} onChange={event => setPoints(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label>}
     <label className="field">日付<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
     <label className="field">{isBuy ? '購入先' : '販売先'}<select required value={sourceId} onChange={event => setSourceId(event.target.value)}><option value="">選択してください</option>{sources.map(source => <option value={source.id} key={source.id}>{source.name}</option>)}</select></label>
@@ -917,7 +926,7 @@ function RealizedProfitModal({ item, override, onClose, onSave }: {
         <label className="field">売却額<input inputMode="numeric" value={sale} onChange={event => setSale(event.target.value.replace(/\D/g, ''))} placeholder={String(Math.round(automaticSale))} /></label>
       </div>
       <div className="profit-preview"><span>実現損益</span><strong className={previewProfit === null ? 'warning' : previewProfit >= 0 ? 'positive' : 'negative'}>{previewProfit === null ? '原価未確認' : signedYen(previewProfit)}</strong></div>
-      <p className="modal-note">ここで設定した金額はホームの売却損益だけに反映されます。購入履歴・売却履歴・総購入費用・総売却額は変更されません。</p>
+      <p className="modal-note">ここで設定した金額は販売リストとホームの実現損益に反映されます。購入履歴・売却履歴・総購入費用・総売却額は変更されません。</p>
       <button className="submit-button" type="submit">損益設定を保存</button>
       {override && <button className="secondary-button" type="button" onClick={() => onSave({})}>自動計算に戻す</button>}
     </form>

@@ -93,7 +93,7 @@ button { color: inherit; }
 .value-grid span, .value-grid strong { display: block; }
 .value-grid span { color: var(--muted); font-size: 9px; }
 .value-grid strong { margin-top: 5px; font-size: 18px; }
-.info-note, .calculation-note, .page-hint { margin: 8px 3px 0; color: #939790; font-size: 8px; line-height: 1.55; }
+.info-note, .page-hint { margin: 8px 3px 0; color: #939790; font-size: 8px; line-height: 1.55; }
 
 .product-master { overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: white; }
 .master-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px 30px; align-items: center; gap: 8px; padding: 11px 10px 11px 13px; border-bottom: 1px solid var(--line); }
@@ -111,23 +111,17 @@ button { color: inherit; }
 .row-edit { width: 29px; height: 29px; padding: 0; display: grid; place-items: center; color: #72766f; border: 1px solid var(--line); border-radius: 8px; }
 .wide-more { width: 100%; margin-top: 8px; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 4px; color: #747970; border: 0; border-radius: 10px; background: #eff1ec; font-size: 9px; }
 
-.realized-card { overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: white; }
+.sale-performance-card { overflow: hidden; margin-bottom: 11px; border: 1px solid var(--line); border-radius: 15px; background: white; box-shadow: 0 7px 20px #24291f08; }
+.sale-performance-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 13px 0; }
+.sale-performance-head span { font-size: 9px; font-weight: 800; }
+.sale-performance-head b { color: var(--muted); font-size: 8px; }
+.sale-performance-card > p { margin: 0; padding: 8px 12px; color: #8b704c; border-top: 1px solid #eee2d0; background: #fff9ef; font-size: 7px; line-height: 1.5; }
 .realized-summary { display: grid; grid-template-columns: repeat(3, 1fr); padding: 16px 7px; }
 .realized-summary div { min-width: 0; padding: 0 6px; text-align: center; }
 .realized-summary div + div { border-left: 1px solid var(--line); }
 .realized-summary span, .realized-summary strong { display: block; }
 .realized-summary span { color: #92968f; font-size: 8px; }
 .realized-summary strong { overflow: hidden; margin-top: 4px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.realized-head, .realized-row { display: grid; grid-template-columns: minmax(100px, 1fr) 70px 68px 67px; align-items: center; }
-.realized-head { padding: 8px 10px; color: #999d96; background: #f1f3ee; font-size: 7px; }
-.realized-head span:not(:first-child) { text-align: right; }
-.realized-row { width: 100%; padding: 11px 10px; text-align: left; border: 0; border-top: 1px solid var(--line); background: white; }
-.realized-row > span { min-width: 0; }
-.realized-row span strong, .realized-row span small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.realized-row span strong { font-size: 9px; }
-.realized-row span small { margin-top: 3px; color: #999d96; font-size: 7px; }
-.realized-row b { font-size: 8px; text-align: right; white-space: nowrap; }
-.realized-row.overridden { background: #fffcf5; }
 
 .page { padding-top: 24px; }
 .page-title-row { align-items: flex-start; margin-bottom: 5px; }
@@ -158,10 +152,8 @@ button { color: inherit; }
 
 .ledger-head, .ledger-main, .ledger-add { display: grid; align-items: center; }
 .ledger-head.buy { grid-template-columns: minmax(110px, 1fr) 54px 78px 40px; }
-.ledger-head.sell { grid-template-columns: minmax(95px, 1fr) 38px 45px 72px 40px; }
-.ledger-main.buy, .ledger-main.sell { grid-template-columns: minmax(0, 1fr) 40px; }
+.ledger-main.buy { grid-template-columns: minmax(0, 1fr) 40px; }
 .ledger-main.buy .ledger-add { grid-template-columns: minmax(110px, 1fr) 54px 78px; }
-.ledger-main.sell .ledger-add { grid-template-columns: minmax(95px, 1fr) 38px 45px 72px; }
 .ledger-head { padding: 8px 7px; color: #999d96; border: 1px solid var(--line); border-radius: 11px 11px 0 0; background: #f1f3ee; font-size: 7px; }
 .ledger-head span:not(:first-child) { text-align: right; }
 .ledger-products { overflow: hidden; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 14px 14px; background: white; }
@@ -179,6 +171,31 @@ button { color: inherit; }
 .history-toggle { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; color: #787c75; border: 1px solid var(--line); border-radius: 9px; background: white; }
 .history-toggle:disabled { opacity: .25; }
 .history-toggle.active svg { transform: rotate(180deg); }
+.sale-ledger-products { border-top: 1px solid var(--line); border-radius: 14px; }
+.sale-ledger-main { background: white; }
+.sale-product-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 9px 7px 12px; }
+.sale-product-info { min-width: 0; padding: 3px 0; text-align: left; border: 0; background: transparent; }
+.sale-product-info strong, .sale-product-info small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sale-product-info strong { font-size: 11px; }
+.sale-product-info small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.sale-card-actions { display: flex; align-items: center; gap: 5px; }
+.sale-add-button { min-height: 36px; padding: 0 9px; display: inline-flex; align-items: center; gap: 3px; color: white; border: 0; border-radius: 9px; background: var(--ink); font-size: 8px; font-weight: 800; }
+.sale-add-button:disabled { opacity: .35; }
+.sale-activity-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; margin: 0 10px 9px; border: 1px solid var(--line); border-radius: 10px; background: #f5f6f2; }
+.sale-activity-metrics > span { min-width: 0; padding: 8px 7px; }
+.sale-activity-metrics > span + span { border-left: 1px solid var(--line); }
+.sale-activity-metrics small, .sale-activity-metrics strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sale-activity-metrics small { color: #92968f; font-size: 7px; }
+.sale-activity-metrics strong { margin-top: 3px; font-size: 10px; }
+.sale-profit-edit { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 43px; align-items: center; gap: 3px; padding: 10px 8px 11px 12px; text-align: left; border: 0; border-top: 1px solid var(--line); background: #fbfcf9; }
+.sale-profit-edit.overridden { background: #fffcf4; }
+.sale-profit-edit:disabled { color: inherit; opacity: 1; cursor: default; }
+.sale-profit-edit > span { min-width: 0; }
+.sale-profit-edit small, .sale-profit-edit strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sale-profit-edit small { color: #92968f; font-size: 7px; }
+.sale-profit-edit strong { margin-top: 3px; font-size: 10px; }
+.sale-edit-indicator { display: flex !important; align-items: center; justify-content: flex-end; gap: 3px; color: #7c8179; font-size: 7px; font-weight: 800; }
+.sale-edit-indicator em { padding: 3px 4px; color: #a16a1f; border-radius: 5px; background: #fff0d7; font-size: 6px; font-style: normal; }
 .trade-history { padding: 4px 8px 8px; background: #f5f6f2; }
 .history-add-row { min-height: 39px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 4px 6px 9px; border-bottom: 1px solid var(--line); }
 .history-add-row > span { color: #858a82; font-size: 8px; font-weight: 700; }
@@ -325,12 +342,10 @@ button { color: inherit; }
 
 @media (max-width: 390px) {
   .section { padding-left: 15px; padding-right: 15px; }
-  .realized-head, .realized-row { grid-template-columns: minmax(87px, 1fr) 61px 60px 59px; }
-  .realized-row b { font-size: 7px; }
   .ledger-head.buy { grid-template-columns: minmax(92px, 1fr) 47px 67px 40px; }
-  .ledger-head.sell { grid-template-columns: minmax(85px, 1fr) 34px 38px 62px 40px; }
   .ledger-main.buy .ledger-add { grid-template-columns: minmax(92px, 1fr) 47px 67px; }
-  .ledger-main.sell .ledger-add { grid-template-columns: minmax(85px, 1fr) 34px 38px 62px; }
+  .sale-profit-edit { grid-template-columns: repeat(3, minmax(0, 1fr)) 38px; padding-left: 9px; padding-right: 6px; }
+  .sale-profit-edit strong, .sale-activity-metrics strong { font-size: 9px; }
   .master-row { grid-template-columns: minmax(0, 1fr) 94px 29px; }
 }
 
