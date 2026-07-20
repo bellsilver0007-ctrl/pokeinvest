@@ -759,7 +759,7 @@ function TransactionPage({
     const touch = event.touches[0]
     if (!touch) return
     const target = event.target as HTMLElement
-    setTouchStart({ x: touch.clientX, y: touch.clientY, ignore: Boolean(target.closest('.category-chips, input, select, .page-actions button, .transaction-switch button, .sale-card-actions button, .sale-profit-edit, .history-toggle, .history-edit, .history-delete, .history-add-row button')) })
+    setTouchStart({ x: touch.clientX, y: touch.clientY, ignore: Boolean(target.closest('.category-chips, input, select, .page-actions button, .transaction-switch button, .sale-table-scroll, .history-toggle, .history-edit, .history-delete, .history-add-row button')) })
   }} onTouchEnd={event => {
     if (!touchStart) return
     const touch = event.changedTouches[0]
@@ -786,51 +786,80 @@ function TransactionPage({
       {sourceFilter !== 'すべて' && <p>販売先で絞り込み中は自動計算値を表示します。手動設定の編集は「すべて」に戻して行えます。</p>}
     </div>}
     <div className={`transaction-panel ${isBuy ? 'slide-buy' : 'slide-sell'}`}>
-      {isBuy && <div className="ledger-head buy"><span>商品名 / カテゴリー</span><span>購入数</span><span>合計</span><span /></div>}
-      <div className={`ledger-products ${isBuy ? '' : 'sale-ledger-products'}`}>
-        {visibleStats.map(item => {
-          const key = `${type}|${item.product.id}`
-          const histories = (isBuy ? item.buyTrades : item.sellTrades).filter(trade => sourceFilter === 'すべて' || sourceForTrade(trade, sources)?.id === sourceFilter)
-          const filteredQuantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
-          const filteredAmount = histories.reduce((sum, trade) => sum + trade.amount, 0)
-          const saleValues = isBuy ? null : saleValuesFor(item, histories)
-          const activeCategory = categories.find(category => category.id === item.product.categoryId || (!item.product.categoryId && normalize(category.name) === normalize(item.product.category)))
-          const canAddTransaction = Boolean(activeCategory)
-          const categoryName = activeCategory?.name || `${item.product.category}（削除済み）`
-          return <article className="ledger-product" key={item.product.id}>
-            {isBuy ? <div className="ledger-main buy">
-              <button className="ledger-add" disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}>
-                <span className="ledger-name"><strong>{item.product.name}</strong><small>{categoryName}</small></span>
-                <b>{filteredQuantity.toLocaleString()}</b><b>{yen(filteredAmount)}</b>
-              </button>
-              <button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button>
-            </div> : saleValues && <div className="sale-ledger-main">
-              <div className="sale-product-line">
-                <button className="sale-product-info" onClick={() => onHistory(historyKey === key ? null : key)}><strong>{item.product.name}</strong><small>{categoryName}{item.stock <= 0 ? ' · 在庫なし' : ''}</small></button>
-                <div className="sale-card-actions"><button className="sale-add-button" disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}><Plus size={13} /> 売却</button><button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button></div>
+      {isBuy ? <>
+        <div className="ledger-head buy"><span>商品名 / カテゴリー</span><span>購入数</span><span>合計</span><span /></div>
+        <div className="ledger-products">
+          {visibleStats.map(item => {
+            const key = `${type}|${item.product.id}`
+            const histories = historiesFor(item)
+            const filteredQuantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
+            const filteredAmount = histories.reduce((sum, trade) => sum + trade.amount, 0)
+            const activeCategory = categories.find(category => category.id === item.product.categoryId || (!item.product.categoryId && normalize(category.name) === normalize(item.product.category)))
+            const canAddTransaction = Boolean(activeCategory)
+            const categoryName = activeCategory?.name || `${item.product.category}（削除済み）`
+            return <article className="ledger-product" key={item.product.id}>
+              <div className="ledger-main buy">
+                <button className="ledger-add" disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}>
+                  <span className="ledger-name"><strong>{item.product.name}</strong><small>{categoryName}</small></span>
+                  <b>{filteredQuantity.toLocaleString()}</b><b>{yen(filteredAmount)}</b>
+                </button>
+                <button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button>
               </div>
-              <div className="sale-activity-metrics"><span><small>在庫</small><strong>{item.stock.toLocaleString()}個</strong></span><span><small>販売数</small><strong>{filteredQuantity.toLocaleString()}個</strong></span><span><small>取引合計</small><strong>{yen(filteredAmount)}</strong></span></div>
-              <button className={`sale-profit-edit ${saleValues.overridden ? 'overridden' : ''}`} disabled={sourceFilter !== 'すべて'} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の売却損益を編集`}>
-                <span><small>購入原価</small><strong className={saleValues.cost === null ? 'warning' : ''}>{saleValues.cost === null ? '未確認' : yen(saleValues.cost)}</strong></span>
-                <span><small>売却純額</small><strong>{yen(saleValues.sale)}</strong></span>
-                <span><small>利益</small><strong className={saleValues.profit === null ? 'warning' : saleValues.profit >= 0 ? 'positive' : 'negative'}>{saleValues.profit === null ? '—' : signedYen(saleValues.profit)}</strong></span>
-                <span className="sale-edit-indicator">{sourceFilter !== 'すべて' ? '絞込中' : <>{saleValues.overridden && <em>手動</em>}<Pencil size={13} /></>}</span>
-              </button>
-            </div>}
-            {historyKey === key && <div className="trade-history">
-              <div className="history-add-row"><span>{isBuy ? '購入履歴' : '売却履歴'} · {histories.length}件</span><button disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}><Plus size={13} /> {isBuy ? '購入履歴を追加' : '売却履歴を追加'}</button></div>
-              {histories.map(trade => <div className="trade-history-item" key={trade.id}>
-                <button className="history-edit" onClick={() => onEdit(item.product, type, trade)}><span><strong>{trade.date || '日付未入力'}</strong><small>{displaySource(trade, sources)} · {trade.quantity}個 · 単価 {yen((trade.amount + (isBuy ? trade.points : 0)) / trade.quantity)}{trade.points ? ` · ${trade.points.toLocaleString()}p使用` : ''}</small></span><b>{yen(trade.amount)}</b><Pencil size={13} /></button>
-                <button className="history-delete" aria-label={`${trade.date || '日付未入力'}の履歴を削除`} onClick={() => onDelete(item.product, trade)}><Trash2 size={13} /></button>
-              </div>)}
-            </div>}
-          </article>
-        })}
-        {!visibleStats.length && <div className="empty">{isBuy ? '購入履歴がありません。' : '売却履歴がありません。'}<br />上の「履歴登録」から追加できます。</div>}
-      </div>
+              {historyKey === key && <TradeHistory product={item.product} type={type} histories={histories} sources={sources} canAddTransaction={canAddTransaction} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} />}
+            </article>
+          })}
+          {!visibleStats.length && <div className="empty">購入履歴がありません。<br />上の「履歴登録」から追加できます。</div>}
+        </div>
+      </> : <div className="sale-table-scroll" role="region" aria-label="売却商品一覧。横にスクロールできます。" tabIndex={0}>
+        <table className="sale-table">
+          <colgroup><col /><col /><col /><col /><col /><col /><col /><col /></colgroup>
+          <thead><tr><th scope="col">商品 / カテゴリー</th><th scope="col">在庫</th><th scope="col">販売数</th><th scope="col">取引合計</th><th scope="col">購入原価</th><th scope="col">売却純額</th><th scope="col">利益</th><th scope="col"><span className="sr-only">履歴</span></th></tr></thead>
+          {visibleStats.map(item => {
+            const key = `${type}|${item.product.id}`
+            const histories = historiesFor(item)
+            const filteredQuantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
+            const filteredAmount = histories.reduce((sum, trade) => sum + trade.amount, 0)
+            const saleValues = saleValuesFor(item, histories)
+            const activeCategory = categories.find(category => category.id === item.product.categoryId || (!item.product.categoryId && normalize(category.name) === normalize(item.product.category)))
+            const canAddTransaction = Boolean(activeCategory)
+            const categoryName = activeCategory?.name || `${item.product.category}（削除済み）`
+            const canEditProfit = sourceFilter === 'すべて'
+            return <tbody className={saleValues.overridden ? 'overridden' : ''} key={item.product.id}>
+              <tr>
+                <th scope="row" className="sale-product-cell"><button disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}><strong>{item.product.name}</strong><small>{categoryName}{canAddTransaction ? ' · ＋売却' : ''}</small>{saleValues.overridden && <em>手動設定</em>}</button></th>
+                <td>{item.stock.toLocaleString()}</td>
+                <td>{filteredQuantity.toLocaleString()}</td>
+                <td>{yen(filteredAmount)}</td>
+                <td className={`sale-editable-cell ${saleValues.cost === null ? 'warning' : ''}`}><button className="sale-value-button" disabled={!canEditProfit} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の購入原価を編集`}>{saleValues.cost === null ? '未確認' : yen(saleValues.cost)}</button></td>
+                <td className="sale-editable-cell"><button className="sale-value-button" disabled={!canEditProfit} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の売却額を編集`}>{yen(saleValues.sale)}</button></td>
+                <td className={`sale-editable-cell ${saleValues.profit === null ? 'warning' : saleValues.profit >= 0 ? 'positive' : 'negative'}`}><button className="sale-value-button sale-profit-button" disabled={!canEditProfit} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の売却損益を編集`}>{saleValues.profit === null ? '—' : signedYen(saleValues.profit)}{canEditProfit && <Pencil size={11} />}</button></td>
+                <td className="sale-history-cell"><button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} aria-expanded={historyKey === key} aria-controls={`sale-history-${item.product.id}`} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button></td>
+              </tr>
+              {historyKey === key && <tr className="sale-history-row"><td colSpan={8}><TradeHistory id={`sale-history-${item.product.id}`} product={item.product} type={type} histories={histories} sources={sources} canAddTransaction={canAddTransaction} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} /></td></tr>}
+            </tbody>
+          })}
+          {!visibleStats.length && <tbody><tr><td colSpan={8}><div className="empty">売却履歴がありません。<br />上の「履歴登録」から追加できます。</div></td></tr></tbody>}
+        </table>
+      </div>}
     </div>
-    <p className="page-hint">{isBuy ? '新しい商品は「履歴登録」で商品情報と取引を同時に登録できます。' : '購入原価・売却純額・利益の行を押すと、売却損益だけを手動設定できます。取引履歴の金額は変更されません。'}</p>
+    <p className="page-hint">{isBuy ? '新しい商品は「履歴登録」で商品情報と取引を同時に登録できます。' : '表は横にスクロールできます。購入原価・売却純額・利益のセルを押すと、売却損益だけを手動設定できます。取引履歴の金額は変更されません。'}</p>
   </section>
+}
+
+function TradeHistory({ id, product, type, histories, sources, canAddTransaction, onAdd, onEdit, onDelete }: {
+  id?: string; product: Product; type: 'buy' | 'sell'; histories: Trade[]; sources: SourceMaster[]; canAddTransaction: boolean
+  onAdd: (product: Product, type: 'buy' | 'sell') => void
+  onEdit: (product: Product, type: 'buy' | 'sell', trade: Trade) => void
+  onDelete: (product: Product, trade: Trade) => void
+}) {
+  const isBuy = type === 'buy'
+  return <div className="trade-history" id={id}>
+    <div className="history-add-row"><span>{isBuy ? '購入履歴' : '売却履歴'} · {histories.length}件</span><button disabled={!canAddTransaction} onClick={() => onAdd(product, type)}><Plus size={13} /> {isBuy ? '購入履歴を追加' : '売却履歴を追加'}</button></div>
+    {histories.map(trade => <div className="trade-history-item" key={trade.id}>
+      <button className="history-edit" onClick={() => onEdit(product, type, trade)}><span><strong>{trade.date || '日付未入力'}</strong><small>{displaySource(trade, sources)} · {trade.quantity}個 · 単価 {yen((trade.amount + (isBuy ? trade.points : 0)) / trade.quantity)}{trade.points ? ` · ${trade.points.toLocaleString()}p使用` : ''}</small></span><b>{yen(trade.amount)}</b><Pencil size={13} /></button>
+      <button className="history-delete" aria-label={`${trade.date || '日付未入力'}の履歴を削除`} onClick={() => onDelete(product, trade)}><Trash2 size={13} /></button>
+    </div>)}
+  </div>
 }
 
 function TradeEntryModal({ type, products, stats, categories, sources, onClose, onSave }: {
