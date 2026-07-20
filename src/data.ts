@@ -11,6 +11,7 @@ export type Trade = {
   unitPrice?: number
   date: string
   source: string
+  sourceId?: string
   note?: string
   unitType?: UnitType
   fee?: number
