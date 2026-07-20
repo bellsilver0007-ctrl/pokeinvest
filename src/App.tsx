@@ -1001,13 +1001,21 @@ function SettingsPage({ categories, sources, onAddCategory, onToggleCategory, on
   const [sourceName, setSourceName] = useState('')
   const sortedCategories = [...categories].sort((a, b) => Number(b.active) - Number(a.active) || a.sortOrder - b.sortOrder)
   const sortedSources = [...sources].sort((a, b) => Number(b.active) - Number(a.active) || a.sortOrder - b.sortOrder)
+  const confirmCategoryToggle = (category: CategoryMaster) => {
+    if (category.active && !confirm(`「${category.name}」を本当に削除しますか？\n\n新しい取引では選択できなくなりますが、過去の取引履歴は削除されません。`)) return
+    onToggleCategory(category.id)
+  }
+  const confirmSourceToggle = (source: SourceMaster) => {
+    if (source.active && !confirm(`「${source.name}」を本当に削除しますか？\n\n新しい取引では選択できなくなりますが、過去の取引履歴は削除されません。`)) return
+    onToggleSource(source.id)
+  }
   return <section className="page section settings-page">
     <div className="page-title-row"><div><p className="eyebrow">MY PAGE</p><h1>マイページ</h1></div><span className="settings-icon"><Settings size={19} /></span></div>
     <p className="page-description">取引登録と絞り込みで使用するカテゴリーを管理できます。</p>
 
-    <div className="settings-panel">
-      <div className="settings-heading"><span className="settings-heading-icon"><Tag size={15} /></span><div><h2>商品カテゴリー</h2><p>商品登録時の分類と取引履歴の絞り込みに使用します。</p></div></div>
-      <form className="settings-add category-settings-add" onSubmit={event => {
+    <details className="settings-panel">
+      <summary className="settings-heading"><span className="settings-heading-icon"><Tag size={15} /></span><div><h2>商品カテゴリー</h2><p>商品登録時の分類と取引履歴の絞り込みに使用します。</p></div><span className="settings-heading-meta"><b>有効 {categories.filter(category => category.active).length}/{categories.length}</b><ChevronDown className="settings-heading-chevron" size={17} /></span></summary>
+      <div className="settings-content"><form className="settings-add category-settings-add" onSubmit={event => {
         event.preventDefault()
         if (!categoryName.trim()) return
         onAddCategory(categoryName, categoryUnitType)
@@ -1016,13 +1024,13 @@ function SettingsPage({ categories, sources, onAddCategory, onToggleCategory, on
       }}><input value={categoryName} onChange={event => setCategoryName(event.target.value)} placeholder="新しいカテゴリー名" /><select aria-label="商品の種類" value={categoryUnitType} onChange={event => setCategoryUnitType(event.target.value as UnitType)}>{unitTypeOptions.map(unitType => <option value={unitType} key={unitType}>{unitLabels[unitType]}</option>)}</select><button type="submit"><Plus size={15} /> 追加</button></form>
       <div className="settings-list">{sortedCategories.map(category => <div className={`settings-item ${category.active ? '' : 'inactive'}`} key={category.id}>
         <span><strong>{category.name}</strong><small>{unitLabels[category.unitType]} · {category.active ? '使用中' : '削除済み'}</small></span>
-        <button className={category.active ? 'archive-button' : 'restore-button'} onClick={() => onToggleCategory(category.id)}>{category.active ? <><Trash2 size={13} /> 削除</> : <><Plus size={13} /> 復元</>}</button>
-      </div>)}</div>
-    </div>
+        <button className={category.active ? 'archive-button' : 'restore-button'} onClick={() => confirmCategoryToggle(category)}>{category.active ? <><Trash2 size={13} /> 削除</> : <><Plus size={13} /> 復元</>}</button>
+      </div>)}</div></div>
+    </details>
 
-    <div className="settings-panel">
-      <div className="settings-heading"><span className="settings-heading-icon"><MapPin size={15} /></span><div><h2>購入・販売先</h2><p>ヨドバシやメルカリなど、取引先別の絞り込みに使用します。</p></div></div>
-      <form className="settings-add" onSubmit={event => {
+    <details className="settings-panel">
+      <summary className="settings-heading"><span className="settings-heading-icon"><MapPin size={15} /></span><div><h2>購入・販売先</h2><p>ヨドバシやメルカリなど、取引先別の絞り込みに使用します。</p></div><span className="settings-heading-meta"><b>有効 {sources.filter(source => source.active).length}/{sources.length}</b><ChevronDown className="settings-heading-chevron" size={17} /></span></summary>
+      <div className="settings-content"><form className="settings-add" onSubmit={event => {
         event.preventDefault()
         if (!sourceName.trim()) return
         onAddSource(sourceName)
@@ -1030,9 +1038,9 @@ function SettingsPage({ categories, sources, onAddCategory, onToggleCategory, on
       }}><input value={sourceName} onChange={event => setSourceName(event.target.value)} placeholder="新しい購入・販売先" /><button type="submit"><Plus size={15} /> 追加</button></form>
       <div className="settings-list">{sortedSources.map(source => <div className={`settings-item ${source.active ? '' : 'inactive'}`} key={source.id}>
         <span><strong>{source.name}</strong><small>{source.active ? '使用中' : '削除済み'}</small></span>
-        <button className={source.active ? 'archive-button' : 'restore-button'} onClick={() => onToggleSource(source.id)}>{source.active ? <><Trash2 size={13} /> 削除</> : <><Plus size={13} /> 復元</>}</button>
-      </div>)}</div>
-    </div>
+        <button className={source.active ? 'archive-button' : 'restore-button'} onClick={() => confirmSourceToggle(source)}>{source.active ? <><Trash2 size={13} /> 削除</> : <><Plus size={13} /> 復元</>}</button>
+      </div>)}</div></div>
+    </details>
     <p className="settings-note">削除した項目は新しい取引で選べなくなりますが、過去の取引履歴はそのまま残ります。必要なときはここから復元できます。</p>
   </section>
 }
