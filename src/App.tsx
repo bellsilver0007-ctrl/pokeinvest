@@ -40,6 +40,7 @@ type Product = {
   categoryId?: string
   unitType?: UnitType
   expectedPrice: number
+  createdAt?: string
 }
 type RealizedOverride = { cost?: number; sale?: number }
 type RealizedDisplay = { cost: number | null; sale: number; profit: number | null; overridden: boolean }
@@ -453,6 +454,7 @@ function normalizePortfolio(value: unknown): PortfolioState {
           categoryId: typeof item.categoryId === 'string' ? item.categoryId : undefined,
           unitType: isUnitType(item.unitType) ? item.unitType : undefined,
           expectedPrice: typeof item.expectedPrice === 'number' && Number.isFinite(item.expectedPrice) ? Math.max(0, item.expectedPrice) : 0,
+          createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
         }]
       })
     : []
@@ -1223,11 +1225,11 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
   const [entryType, setEntryType] = useState<'buy' | 'sell' | null>(null)
   const [collectionModal, setCollectionModal] = useState<ManualCollectionCard | 'new' | null>(null)
   const [realizedModal, setRealizedModal] = useState<ProductStats | null>(null)
+  const [showProductManager, setShowProductManager] = useState(false)
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('すべて')
   const [sourceFilter, setSourceFilter] = useState<string>('すべて')
   const [historyKey, setHistoryKey] = useState<string | null>(null)
-  const [showAllProducts, setShowAllProducts] = useState(false)
   const hasOpenModal = Boolean(productModal || tradeModal || entryType || collectionModal || realizedModal)
 
   useEffect(() => {
@@ -1236,6 +1238,10 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = previousOverflow }
   }, [hasOpenModal])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [tab, showProductManager])
 
   useEffect(() => {
     const previous = lastPortfolioRef.current
@@ -1300,7 +1306,15 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
   }, [stats, realizedOverrides])
   const inStock = stats.filter(item => item.stock > 0)
   const pricedStock = inStock.filter(item => item.product.expectedPrice > 0)
-  const displayedProducts = showAllProducts ? stats : stats.slice(0, 8)
+  const newestProductStats = stats.slice().reverse().sort((a, b) => {
+    const aTime = a.product.createdAt ? Date.parse(a.product.createdAt) : Number.NaN
+    const bTime = b.product.createdAt ? Date.parse(b.product.createdAt) : Number.NaN
+    if (Number.isFinite(aTime) && Number.isFinite(bTime)) return bTime - aTime
+    if (Number.isFinite(aTime)) return -1
+    if (Number.isFinite(bTime)) return 1
+    return 0
+  })
+  const recentProductStats = newestProductStats.slice(0, 5)
   const filteredStats = stats.filter(item => {
     const productCategoryId = item.product.categoryId || categoryForName(categories, item.product.category)?.id
     const matchesCategory = categoryFilter === 'すべて' || productCategoryId === categoryFilter
@@ -1468,6 +1482,7 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
   }
   const openTab = (nextTab: Tab) => {
     setTab(nextTab)
+    if (nextTab === 'home') setShowProductManager(false)
     if (nextTab === 'transactions') {
       setHistoryKey(null)
     }
@@ -1501,7 +1516,13 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
     </div>}
 
     <main>
-      {tab === 'home' && <>
+      {tab === 'home' && (showProductManager ? <ProductManagementPage
+        stats={newestProductStats}
+        categoryNameForProduct={categoryNameForProduct}
+        onBack={() => setShowProductManager(false)}
+        onEdit={setProductModal}
+        onExpectedPrice={setExpectedPrice}
+      /> : <>
         <section className="hero">
           <p className="eyebrow">TOTAL PERFORMANCE</p>
           <span className="hero-label">推定総損益</span>
@@ -1523,21 +1544,22 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
         </section>
 
         <section className="section">
-          <div className="section-head"><div><p className="eyebrow">PRODUCT MASTER</p><h2>商品情報</h2></div><span className="count-label">取引登録時に自動作成</span></div>
-          <div className="product-master">
-            {displayedProducts.map(item => <article className="master-row" key={item.product.id}>
-              <button className="master-info" onClick={() => setProductModal(item.product)}>
-                <strong>{item.product.name}</strong><small>{categoryNameForProduct(item.product)} · 在庫 {item.stock.toLocaleString()}個</small>
-              </button>
-              <label className="price-input"><span>想定売価</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => setExpectedPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
-              <button className="row-edit" aria-label={`${item.product.name}の商品情報を編集`} onClick={() => setProductModal(item.product)}><Pencil size={14} /></button>
-            </article>)}
-            {!stats.length && <div className="empty">商品情報がありません。</div>}
+          <div className="section-head">
+            <div><p className="eyebrow">PRODUCT MASTER</p><h2>商品情報</h2><span className="count-label">最近追加した商品 · 最大5件</span></div>
+            <button className="product-manage-button" onClick={() => setShowProductManager(true)}>商品管理 <ChevronRight size={15} /></button>
           </div>
-          {stats.length > 8 && <button className="wide-more" onClick={() => setShowAllProducts(value => !value)}>{showAllProducts ? '折りたたむ' : `すべて表示（${stats.length}商品）`} <ChevronDown size={15} /></button>}
+          <div className="product-master">
+            <ProductMasterRows
+              stats={recentProductStats}
+              categoryNameForProduct={categoryNameForProduct}
+              onEdit={setProductModal}
+              onExpectedPrice={setExpectedPrice}
+              emptyText="商品情報がありません。"
+            />
+          </div>
         </section>
 
-      </>}
+      </>)}
 
       {tab === 'transactions' && <TransactionPage
         type={transactionSide}
@@ -1631,6 +1653,53 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
       onSave={value => saveRealizedOverride(realizedModal.product.id, value)}
     />}
   </div>
+}
+
+function ProductMasterRows({ stats, categoryNameForProduct, onEdit, onExpectedPrice, emptyText }: {
+  stats: ProductStats[]
+  categoryNameForProduct: (product: Product) => string
+  onEdit: (product: Product) => void
+  onExpectedPrice: (productId: string, value: number) => void
+  emptyText: string
+}) {
+  return <>
+    {stats.map(item => <article className="master-row" key={item.product.id}>
+      <button className="master-info" onClick={() => onEdit(item.product)}>
+        <strong>{item.product.name}</strong><small>{categoryNameForProduct(item.product)} · 在庫 {item.stock.toLocaleString()}個</small>
+      </button>
+      <label className="price-input"><span>想定売価</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => onExpectedPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
+      <button className="row-edit" aria-label={`${item.product.name}の商品情報を編集`} onClick={() => onEdit(item.product)}><Pencil size={14} /></button>
+    </article>)}
+    {!stats.length && <div className="empty">{emptyText}</div>}
+  </>
+}
+
+function ProductManagementPage({ stats, categoryNameForProduct, onBack, onEdit, onExpectedPrice }: {
+  stats: ProductStats[]
+  categoryNameForProduct: (product: Product) => string
+  onBack: () => void
+  onEdit: (product: Product) => void
+  onExpectedPrice: (productId: string, value: number) => void
+}) {
+  const [query, setQuery] = useState('')
+  const matchingStats = stats
+    .filter(item => `${item.product.name} ${categoryNameForProduct(item.product)}`.toLocaleLowerCase('ja-JP').includes(query.trim().toLocaleLowerCase('ja-JP')))
+  return <section className="page section product-management-page">
+    <button className="product-management-back" onClick={onBack}><ChevronLeft size={17} /> ホームに戻る</button>
+    <div className="page-title-row product-management-title"><div><p className="eyebrow">PRODUCT MASTER</p><h1>商品管理</h1></div><span className="count-label">{stats.length}商品</span></div>
+    <p className="page-description">商品の検索、想定売価の入力、商品情報の編集ができます。</p>
+    <div className="search-box"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="商品名・カテゴリーで検索" /></div>
+    <div className="product-manager-meta"><span>新しい商品は取引履歴の登録時に追加できます。</span><b>{matchingStats.length} / {stats.length}商品</b></div>
+    <div className="product-master product-manager-list">
+      <ProductMasterRows
+        stats={matchingStats}
+        categoryNameForProduct={categoryNameForProduct}
+        onEdit={onEdit}
+        onExpectedPrice={onExpectedPrice}
+        emptyText={query ? '条件に一致する商品がありません。' : '商品情報がありません。'}
+      />
+    </div>
+  </section>
 }
 
 function TransactionPage({
@@ -1811,7 +1880,7 @@ function TradeEntryModal({ type, products, stats, categories, sources, onClose, 
       if (!name.trim()) { alert('商品名を入力してください。'); return }
       if (!category) { alert('商品カテゴリーを選択してください。'); return }
       if (products.some(item => (item.categoryId === category.id || (!item.categoryId && normalize(item.category) === normalize(category.name))) && normalize(item.name) === normalize(name))) { alert('同じカテゴリーに同名の商品があります。'); return }
-      product = { id: crypto.randomUUID(), name: name.trim(), category: category.name, categoryId: category.id, unitType: category.unitType, expectedPrice: 0 }
+      product = { id: crypto.randomUUID(), name: name.trim(), category: category.name, categoryId: category.id, unitType: category.unitType, expectedPrice: 0, createdAt: new Date().toISOString() }
       isNewProduct = true
     }
     if (!product) return
@@ -2020,7 +2089,7 @@ function ProductModal({ product, categories, onClose, onSave, onDelete }: {
       event.preventDefault()
       const category = categories.find(item => item.id === categoryId)
       if (!name.trim() || !category) return
-      onSave({ id: product?.id || crypto.randomUUID(), name: name.trim(), category: category.name, categoryId: category.id, unitType: category.unitType, expectedPrice: product?.expectedPrice || 0 })
+      onSave({ id: product?.id || crypto.randomUUID(), name: name.trim(), category: category.name, categoryId: category.id, unitType: category.unitType, expectedPrice: product?.expectedPrice || 0, createdAt: product ? product.createdAt : new Date().toISOString() })
     }}>
       <div className="modal-head"><div><p className="eyebrow">PRODUCT INFO</p><h2>{product ? '商品情報を編集' : '商品を追加'}</h2></div><button type="button" onClick={onClose}><X /></button></div>
       <label className="field">商品名<input value={name} onChange={event => setName(event.target.value)} placeholder="例：イーブイex SAR" autoFocus /></label>
