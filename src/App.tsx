@@ -1,23 +1,33 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Session, User } from '@supabase/supabase-js'
 import {
   ArrowLeftRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Cloud,
+  CloudOff,
   Download,
   Home,
   Images,
+  LoaderCircle,
+  LogIn,
+  LogOut,
   MapPin,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Settings,
+  ShieldCheck,
   Tag,
   Trash2,
   UserRound,
   X,
 } from 'lucide-react'
-import { inferUnitType, jaText, seedHoldings, seedTrades, starterDeckIds, unitLabels, type Trade, type UnitType } from './data'
+import { inferUnitType, jaText, unitLabels, type Trade, type UnitType } from './domain'
+import { loadPortfolioSnapshot, PortfolioRepositoryError, savePortfolioSnapshot } from './portfolioRepository'
+import { supabase, supabaseConfigError } from './supabase'
 
 type Tab = 'home' | 'transactions' | 'collection' | 'profile'
 type ProductCategory = string
@@ -43,6 +53,16 @@ type CollectionData = {
   hiddenProductIds: string[]
   manualCards: ManualCollectionCard[]
 }
+type PortfolioState = {
+  schemaVersion: 1
+  trades: Trade[]
+  categories: CategoryMaster[]
+  products: Product[]
+  sources: SourceMaster[]
+  collection: CollectionData
+  realizedOverrides: Record<string, RealizedOverride>
+}
+type SaveStatus = 'saved' | 'pending' | 'saving' | 'error' | 'conflict'
 type ProductStats = {
   product: Product
   trades: Trade[]
@@ -69,6 +89,16 @@ const COLLECTION_STORAGE = 'pokeinvest-collection-v2'
 const REALIZED_STORAGE = 'pokeinvest-realized-overrides-v1'
 const CATEGORY_STORAGE = 'pokeinvest-category-master-v1'
 const SOURCE_STORAGE = 'pokeinvest-source-master-v1'
+const LEGACY_CLAIM_STORAGE = 'pokeinvest-legacy-claimed-by-v1'
+const CLOUD_DRAFT_PREFIX = 'pokeinvest-cloud-draft-v1:'
+const legacyStorageKeys = [
+  TRADE_STORAGE,
+  PRODUCT_STORAGE,
+  COLLECTION_STORAGE,
+  REALIZED_STORAGE,
+  CATEGORY_STORAGE,
+  SOURCE_STORAGE,
+]
 const defaultCategories: CategoryMaster[] = [
   { id: 'cat-card', name: 'カード', unitType: 'card', active: true, sortOrder: 1 },
   { id: 'cat-pack', name: 'パック', unitType: 'pack', active: true, sortOrder: 2 },
@@ -78,6 +108,21 @@ const defaultCategories: CategoryMaster[] = [
   { id: 'cat-goods', name: 'グッズ', unitType: 'goods', active: true, sortOrder: 6 },
   { id: 'cat-other', name: 'その他', unitType: 'unknown', active: true, sortOrder: 7 },
 ]
+const defaultSources: SourceMaster[] = [
+  { id: 'source-other', name: 'その他', active: true, sortOrder: 1, aliases: ['기타'] },
+]
+const legacyCollectionFallback: ManualCollectionCard[] = [
+  { id: 'holding-h1', name: 'CHRまで', quantity: 1, expectedPrice: 262812 },
+  { id: 'holding-h2', name: '御三家コレクション', quantity: 1, expectedPrice: 62000 },
+  { id: 'holding-h3', name: 'ARカード', quantity: 196, expectedPrice: 700 },
+  { id: 'holding-h4', name: 'ブイズ', quantity: 1, expectedPrice: 154000 },
+  { id: 'holding-h7', name: 'トウホク', quantity: 1, expectedPrice: 20000 },
+  { id: 'holding-h8', name: 'ヒロシマ', quantity: 1, expectedPrice: 25000 },
+]
+const legacyBoxPriceFallback: Record<string, number> = {
+  ニンジャスピナー: 11000,
+  メガドリーム: 15000,
+}
 const unitTypeOptions: UnitType[] = ['card', 'pack', 'box', 'deck', 'set', 'goods', 'unknown']
 const genericGroups = new Set([
   'メルカリ', 'Yahoo!フリマ', 'カードショップ', '闲鱼', 'シングル売却', '韓国グッズ',
@@ -166,9 +211,10 @@ const newestFirst = (a: Trade, b: Trade) => Number(Boolean(b.date)) - Number(Boo
 function readTrades(): Trade[] {
   try {
     const saved = localStorage.getItem(TRADE_STORAGE)
-    if (saved) return JSON.parse(saved)
-    const source: Trade[] = seedTrades
-    const migrated = source.map((trade, index) => ({
+    if (!saved) return []
+    const parsed: Trade[] = JSON.parse(saved)
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((trade, index) => ({
       ...trade,
       name: jaText(trade.name),
       group: jaText(trade.group || trade.name),
@@ -176,10 +222,8 @@ function readTrades(): Trade[] {
       unitType: trade.unitType || inferUnitType(jaText(trade.name), trade.category),
       sortOrder: trade.sortOrder ?? index + 1,
     }))
-    localStorage.setItem(TRADE_STORAGE, JSON.stringify(migrated))
-    return migrated
   } catch {
-    return seedTrades
+    return []
   }
 }
 
@@ -193,7 +237,6 @@ function readCategoryMasters(): CategoryMaster[] {
     defaultCategories.forEach(defaultCategory => {
       if (!merged.some(category => category.id === defaultCategory.id || normalize(category.name) === normalize(defaultCategory.name))) merged.push(defaultCategory)
     })
-    localStorage.setItem(CATEGORY_STORAGE, JSON.stringify(merged))
     return merged
   } catch {
     return defaultCategories
@@ -217,11 +260,9 @@ function readSourceMasters(trades: Trade[]): SourceMaster[] {
         aliases: Object.entries(sourceLabels).filter(([, label]) => label === name).map(([alias]) => alias),
       })
     })
-    const result = masters.length ? masters : [{ id: 'source-other', name: 'その他', active: true, sortOrder: 1, aliases: ['기타'] }]
-    localStorage.setItem(SOURCE_STORAGE, JSON.stringify(result))
-    return result
+    return masters.length ? masters : defaultSources
   } catch {
-    return [{ id: 'source-other', name: 'その他', active: true, sortOrder: 1, aliases: ['기타'] }]
+    return defaultSources
   }
 }
 
@@ -234,16 +275,15 @@ function createProductsFromTrades(trades: Trade[], categories: CategoryMaster[] 
     const key = `${category}|${normalize(name)}`
     if (!name || seen.has(key)) return
     seen.add(key)
-    const holding = seedHoldings.find(item => item.category === '팩・박스' && category === 'ボックス' && normalize(item.name).startsWith(normalize(name)))
     const master = categoryForName(categories, category)
-    products.push({ id: `migrated-product-${products.length + 1}`, name, category, categoryId: master?.id, unitType: master?.unitType || getUnitType(trade), expectedPrice: holding ? Math.round(holding.value / holding.quantity) : 0 })
-  })
-  starterDeckIds.forEach(name => {
-    const key = `スタートデッキ|${normalize(name)}`
-    if (seen.has(key)) return
-    seen.add(key)
-    const master = categoryForName(categories, 'スタートデッキ')
-    products.push({ id: `starter-deck-${name}`, name, category: master?.name || 'スタートデッキ', categoryId: master?.id, unitType: 'deck', expectedPrice: 0 })
+    products.push({
+      id: `migrated-product-${products.length + 1}`,
+      name,
+      category,
+      categoryId: master?.id,
+      unitType: master?.unitType || getUnitType(trade),
+      expectedPrice: category === 'ボックス' ? legacyBoxPriceFallback[name] || 0 : 0,
+    })
   })
   return products.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
 }
@@ -267,7 +307,6 @@ function readProducts(trades: Trade[], categories: CategoryMaster[]): Product[] 
       if (!alreadyExists) merged.push({ ...product, id: `migrated-product-${merged.length + 1}` })
     })
     const products = merged.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
-    localStorage.setItem(PRODUCT_STORAGE, JSON.stringify(products))
     return products
   } catch {
     return createProductsFromTrades(trades, categories)
@@ -280,12 +319,9 @@ function readCollection(): CollectionData {
     if (saved) return JSON.parse(saved)
     return {
       hiddenProductIds: [],
-      manualCards: seedHoldings.filter(item => item.category === '싱글 카드').map(item => ({
-        id: `holding-${item.id}`,
-        name: item.name,
-        quantity: item.quantity,
-        expectedPrice: Math.round(item.value / item.quantity),
-      })),
+      manualCards: localStorage.getItem(TRADE_STORAGE)
+        ? legacyCollectionFallback.map(card => ({ ...card }))
+        : [],
     }
   } catch {
     return { hiddenProductIds: [], manualCards: [] }
@@ -298,6 +334,309 @@ function readRealizedOverrides(): Record<string, RealizedOverride> {
     return saved ? JSON.parse(saved) : {}
   } catch {
     return {}
+  }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+const isUnitType = (value: unknown): value is UnitType => unitTypeOptions.includes(value as UnitType)
+
+class LegacyImportError extends Error {
+  constructor() {
+    super('legacy_data_invalid')
+    this.name = 'LegacyImportError'
+  }
+}
+
+function assertLegacyStorageReadable() {
+  const arrayKeys = new Set([TRADE_STORAGE, PRODUCT_STORAGE, CATEGORY_STORAGE, SOURCE_STORAGE])
+  for (const key of legacyStorageKeys) {
+    const raw = localStorage.getItem(key)
+    if (raw === null) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      throw new LegacyImportError()
+    }
+    if (arrayKeys.has(key) && !Array.isArray(parsed)) throw new LegacyImportError()
+    if (!arrayKeys.has(key) && !isRecord(parsed)) throw new LegacyImportError()
+    if (key === TRADE_STORAGE && (parsed as unknown[]).some(item =>
+      !isRecord(item)
+      || typeof item.id !== 'string'
+      || typeof item.name !== 'string'
+      || typeof item.category !== 'string'
+      || !['buy', 'sell'].includes(String(item.type))
+      || typeof item.amount !== 'number'
+      || typeof item.quantity !== 'number'
+      || typeof item.source !== 'string',
+    )) throw new LegacyImportError()
+    if (key === PRODUCT_STORAGE && (parsed as unknown[]).some(item =>
+      !isRecord(item)
+      || typeof item.id !== 'string'
+      || typeof item.name !== 'string'
+      || typeof item.category !== 'string',
+    )) throw new LegacyImportError()
+    if (key === CATEGORY_STORAGE && (parsed as unknown[]).some(item =>
+      !isRecord(item)
+      || typeof item.id !== 'string'
+      || typeof item.name !== 'string'
+      || !isUnitType(item.unitType),
+    )) throw new LegacyImportError()
+    if (key === SOURCE_STORAGE && (parsed as unknown[]).some(item =>
+      !isRecord(item)
+      || typeof item.id !== 'string'
+      || typeof item.name !== 'string',
+    )) throw new LegacyImportError()
+    if (key === COLLECTION_STORAGE && isRecord(parsed)) {
+      if (!Array.isArray(parsed.hiddenProductIds) || !Array.isArray(parsed.manualCards)) throw new LegacyImportError()
+      if (parsed.manualCards.some(item =>
+        !isRecord(item)
+        || typeof item.id !== 'string'
+        || typeof item.name !== 'string'
+        || typeof item.quantity !== 'number'
+        || typeof item.expectedPrice !== 'number',
+      )) throw new LegacyImportError()
+    }
+  }
+}
+
+function emptyPortfolio(): PortfolioState {
+  return {
+    schemaVersion: 1,
+    trades: [],
+    categories: defaultCategories.map(category => ({ ...category })),
+    products: [],
+    sources: defaultSources.map(source => ({ ...source, aliases: [...source.aliases] })),
+    collection: { hiddenProductIds: [], manualCards: [] },
+    realizedOverrides: {},
+  }
+}
+
+function normalizePortfolio(value: unknown): PortfolioState {
+  if (!isRecord(value)) return emptyPortfolio()
+
+  const categories: CategoryMaster[] = Array.isArray(value.categories)
+    ? value.categories.filter(isRecord).flatMap((item, index) => {
+        if (typeof item.id !== 'string' || typeof item.name !== 'string') return []
+        return [{
+          id: item.id,
+          name: item.name,
+          unitType: isUnitType(item.unitType) ? item.unitType : 'unknown',
+          active: item.active !== false,
+          sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index + 1,
+        }]
+      })
+    : []
+  const safeCategories = categories.length ? categories : defaultCategories.map(category => ({ ...category }))
+
+  const sources: SourceMaster[] = Array.isArray(value.sources)
+    ? value.sources.filter(isRecord).flatMap((item, index) => {
+        if (typeof item.id !== 'string' || typeof item.name !== 'string') return []
+        return [{
+          id: item.id,
+          name: item.name,
+          active: item.active !== false,
+          sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index + 1,
+          aliases: Array.isArray(item.aliases) ? item.aliases.filter(alias => typeof alias === 'string') : [],
+        }]
+      })
+    : []
+  const safeSources = sources.length ? sources : defaultSources.map(source => ({ ...source, aliases: [...source.aliases] }))
+
+  const products: Product[] = Array.isArray(value.products)
+    ? value.products.filter(isRecord).flatMap(item => {
+        if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.category !== 'string') return []
+        return [{
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          categoryId: typeof item.categoryId === 'string' ? item.categoryId : undefined,
+          unitType: isUnitType(item.unitType) ? item.unitType : undefined,
+          expectedPrice: typeof item.expectedPrice === 'number' && Number.isFinite(item.expectedPrice) ? Math.max(0, item.expectedPrice) : 0,
+        }]
+      })
+    : []
+
+  const trades: Trade[] = Array.isArray(value.trades)
+    ? value.trades.filter(isRecord).flatMap((item, index) => {
+        if (
+          typeof item.id !== 'string'
+          || typeof item.name !== 'string'
+          || typeof item.category !== 'string'
+          || typeof item.type !== 'string'
+          || !['buy', 'sell'].includes(item.type)
+        ) return []
+        const quantity = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1
+        const amount = typeof item.amount === 'number' && Number.isFinite(item.amount) ? Math.max(0, item.amount) : 0
+        const points = typeof item.points === 'number' && Number.isFinite(item.points) ? Math.max(0, item.points) : 0
+        return [{
+          id: item.id,
+          productId: typeof item.productId === 'string' ? item.productId : undefined,
+          name: item.name,
+          category: item.category,
+          group: typeof item.group === 'string' ? item.group : item.name,
+          type: item.type as 'buy' | 'sell',
+          amount,
+          points,
+          quantity,
+          unitPrice: typeof item.unitPrice === 'number' ? item.unitPrice : undefined,
+          date: typeof item.date === 'string' ? item.date : '',
+          source: typeof item.source === 'string' ? item.source : 'その他',
+          sourceId: typeof item.sourceId === 'string' ? item.sourceId : undefined,
+          note: typeof item.note === 'string' ? item.note : '',
+          unitType: isUnitType(item.unitType) ? item.unitType : undefined,
+          fee: typeof item.fee === 'number' ? Math.max(0, item.fee) : 0,
+          shipping: typeof item.shipping === 'number' ? Math.max(0, item.shipping) : 0,
+          createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
+          sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index + 1,
+        }]
+      })
+    : []
+
+  const linkedTrades = trades.map(trade => {
+    const source = sourceForTrade(trade, safeSources)
+    const directProduct = trade.productId ? products.find(product => product.id === trade.productId) : undefined
+    const matchedProduct = directProduct || products.find(product =>
+      normalize(getProductName(trade)) === normalize(product.name)
+      && productCategoryFromTrade(trade) === product.category,
+    )
+    return {
+      ...trade,
+      productId: matchedProduct?.id || trade.productId,
+      sourceId: source?.id || trade.sourceId,
+    }
+  })
+
+  const collectionValue = isRecord(value.collection) ? value.collection : {}
+  const manualCards: ManualCollectionCard[] = Array.isArray(collectionValue.manualCards)
+    ? collectionValue.manualCards.filter(isRecord).flatMap(item => {
+        if (typeof item.id !== 'string' || typeof item.name !== 'string') return []
+        return [{
+          id: item.id,
+          name: item.name,
+          quantity: typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1,
+          expectedPrice: typeof item.expectedPrice === 'number' ? Math.max(0, item.expectedPrice) : 0,
+        }]
+      })
+    : []
+
+  const overrides: Record<string, RealizedOverride> = {}
+  if (isRecord(value.realizedOverrides)) {
+    Object.entries(value.realizedOverrides).forEach(([productId, override]) => {
+      if (!isRecord(override)) return
+      const cost = typeof override.cost === 'number' && override.cost >= 0 ? override.cost : undefined
+      const sale = typeof override.sale === 'number' && override.sale >= 0 ? override.sale : undefined
+      if (cost !== undefined || sale !== undefined) overrides[productId] = { cost, sale }
+    })
+  }
+
+  return {
+    schemaVersion: 1,
+    trades: linkedTrades,
+    categories: safeCategories,
+    products,
+    sources: safeSources,
+    collection: {
+      hiddenProductIds: Array.isArray(collectionValue.hiddenProductIds)
+        ? collectionValue.hiddenProductIds.filter(id => typeof id === 'string')
+        : [],
+      manualCards,
+    },
+    realizedOverrides: overrides,
+  }
+}
+
+type PortfolioDraft = {
+  baseRevision: number
+  state: PortfolioState
+  updatedAt: string
+}
+
+function readPortfolioDraft(userId: string): PortfolioDraft | null {
+  try {
+    const raw = localStorage.getItem(`${CLOUD_DRAFT_PREFIX}${userId}`)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed) || typeof parsed.baseRevision !== 'number' || !isRecord(parsed.state)) return null
+    return {
+      baseRevision: parsed.baseRevision,
+      state: normalizePortfolio(parsed.state),
+      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+function writePortfolioDraft(userId: string, baseRevision: number, state: PortfolioState) {
+  try {
+    localStorage.setItem(`${CLOUD_DRAFT_PREFIX}${userId}`, JSON.stringify({
+      baseRevision,
+      state,
+      updatedAt: new Date().toISOString(),
+    }))
+  } catch {
+    // Remote saving and the unload warning remain available without local storage.
+  }
+}
+
+function removePortfolioDraft(userId: string) {
+  try {
+    localStorage.removeItem(`${CLOUD_DRAFT_PREFIX}${userId}`)
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function readLegacyPortfolio(): PortfolioState {
+  assertLegacyStorageReadable()
+  const trades = readTrades()
+  const categories = readCategoryMasters()
+  const products = readProducts(trades, categories)
+  const sources = readSourceMasters(trades)
+  return normalizePortfolio({
+    schemaVersion: 1,
+    trades,
+    categories,
+    products,
+    sources,
+    collection: readCollection(),
+    realizedOverrides: readRealizedOverrides(),
+  })
+}
+
+function legacyAvailability(userId: string) {
+  try {
+    const hasData = legacyStorageKeys.some(key => localStorage.getItem(key) !== null)
+    const claimedBy = localStorage.getItem(LEGACY_CLAIM_STORAGE)
+    return {
+      available: hasData && (!claimedBy || claimedBy === userId),
+      claimedByAnotherAccount: hasData && Boolean(claimedBy && claimedBy !== userId),
+    }
+  } catch {
+    return { available: false, claimedByAnotherAccount: false }
+  }
+}
+
+function markLegacyClaimed(userId: string) {
+  try {
+    localStorage.setItem(LEGACY_CLAIM_STORAGE, userId)
+  } catch {
+    // The cloud copy is already saved even when browser storage is unavailable.
+  }
+}
+
+function getLegacyPreview() {
+  try {
+    const state = readLegacyPortfolio()
+    return {
+      readable: true,
+      trades: state.trades.length,
+      products: state.products.length,
+      cards: state.collection.manualCards.length,
+    }
+  } catch {
+    return { readable: false, trades: 0, products: 0, cards: 0 }
   }
 }
 
@@ -330,13 +669,553 @@ function calculateStats(product: Product, trades: Trade[]): ProductStats {
   }
 }
 
+const userDisplayName = (user: User) => {
+  const metadataName = user.user_metadata.full_name || user.user_metadata.name
+  return typeof metadataName === 'string' && metadataName.trim() ? metadataName.trim() : 'Poke Invest ユーザー'
+}
+const userAvatar = (user: User) => {
+  const value = user.user_metadata.avatar_url || user.user_metadata.picture
+  return typeof value === 'string' && /^https:\/\//.test(value) ? value : null
+}
+const friendlyPortfolioError = (error: unknown) => {
+  if (error instanceof LegacyImportError) {
+    return '端末の既存データの一部を読み取れませんでした。データを上書きせず、元の画面からCSVを保存してからもう一度お試しください。'
+  }
+  if (error instanceof PortfolioRepositoryError) {
+    if (error.code === 'UNSUPPORTED_SCHEMA') {
+      return 'この帳簿は新しいバージョンで保存されています。アプリを最新版に更新してから開いてください。'
+    }
+    if (['42P01', 'PGRST205', 'PGRST202'].includes(error.code || '')) {
+      return 'クラウド保存の初期設定が完了していません。Supabaseで付属のSQLを実行してから、もう一度お試しください。'
+    }
+    if (error.message.includes('portfolio_revision_conflict') || ['40001', 'PT409'].includes(error.code || '')) {
+      return '別の端末で新しい変更が保存されています。クラウドから最新データを読み直してください。'
+    }
+  }
+  return 'クラウド帳簿を読み込めませんでした。通信状態を確認して、もう一度お試しください。'
+}
+
 export function App() {
-  const [trades, setTrades] = useState<Trade[]>(readTrades)
-  const [categories, setCategories] = useState<CategoryMaster[]>(readCategoryMasters)
-  const [products, setProducts] = useState<Product[]>(() => readProducts(trades, categories))
-  const [sources, setSources] = useState<SourceMaster[]>(() => readSourceMasters(trades))
-  const [collection, setCollection] = useState<CollectionData>(readCollection)
-  const [realizedOverrides, setRealizedOverrides] = useState<Record<string, RealizedOverride>>(readRealizedOverrides)
+  const [session, setSession] = useState<Session | null>(null)
+  const [authReady, setAuthReady] = useState(false)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthReady(true)
+      return
+    }
+
+    let active = true
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return
+      if (error) setAuthError('ログイン状態を確認できませんでした。もう一度お試しください。')
+      setSession(data.session)
+      setAuthReady(true)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return
+      setSession(nextSession)
+      setAuthReady(true)
+      setAuthBusy(false)
+    })
+
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  const signInWithGoogle = async () => {
+    if (!supabase) return
+    setAuthBusy(true)
+    setAuthError(null)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+    if (error) {
+      setAuthBusy(false)
+      setAuthError('Googleログインを開始できませんでした。Supabaseの設定を確認してください。')
+    }
+  }
+
+  if (!authReady) return <CenteredStatus title="ログイン状態を確認中" />
+  if (supabaseConfigError) return <LoginScreen busy={false} error={supabaseConfigError} onLogin={() => undefined} configured={false} />
+  if (!session) return <LoginScreen busy={authBusy} error={authError} onLogin={signInWithGoogle} configured />
+
+  return <PortfolioSession key={session.user.id} session={session} />
+}
+
+function PortfolioSession({ session }: { session: Session }) {
+  const user = session.user
+  const [portfolio, setPortfolio] = useState<PortfolioState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [setupRequired, setSetupRequired] = useState(false)
+  const [setupBusy, setSetupBusy] = useState(false)
+  const [legacyState, setLegacyState] = useState(() => legacyAvailability(user.id))
+  const [conflictingDraft, setConflictingDraft] = useState<PortfolioDraft | null>(null)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [ledgerVersion, setLedgerVersion] = useState(0)
+  const revisionRef = useRef(0)
+  const pendingRef = useRef<PortfolioState | null>(null)
+  const timerRef = useRef<number | null>(null)
+  const inFlightRef = useRef<Promise<boolean> | null>(null)
+  const flushRef = useRef<() => Promise<boolean>>(async () => true)
+  const generationRef = useRef(0)
+  const mountedRef = useRef(true)
+  const conflictRef = useRef(false)
+
+  const clearSaveTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  const scheduleSave = (delay = 500) => {
+    clearSaveTimer()
+    if (conflictRef.current) return
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null
+      void flushRef.current()
+    }, delay)
+  }
+
+  flushRef.current = async () => {
+    clearSaveTimer()
+    if (inFlightRef.current) {
+      const currentSaved = await inFlightRef.current
+      if (!currentSaved) return false
+      return pendingRef.current ? flushRef.current() : true
+    }
+
+    const next = pendingRef.current
+    if (!next || conflictRef.current) return !conflictRef.current
+    pendingRef.current = null
+    if (mountedRef.current) {
+      setSaveStatus('saving')
+      setSaveError(null)
+    }
+
+    const request = (async () => {
+      try {
+        const result = await savePortfolioSnapshot(user.id, next, revisionRef.current)
+        revisionRef.current = result.revision
+        return true
+      } catch (error) {
+        if (!pendingRef.current) pendingRef.current = next
+        const conflict = error instanceof PortfolioRepositoryError
+          && (['40001', 'PT409'].includes(error.code || '') || error.message.includes('portfolio_revision_conflict'))
+        conflictRef.current = conflict
+        if (mountedRef.current) {
+          setSaveStatus(conflict ? 'conflict' : 'error')
+          setSaveError(friendlyPortfolioError(error))
+        }
+        return false
+      }
+    })()
+    inFlightRef.current = request
+    const saved = await request
+    inFlightRef.current = null
+
+    if (saved && mountedRef.current) {
+      if (pendingRef.current) {
+        writePortfolioDraft(user.id, revisionRef.current, pendingRef.current)
+        setSaveStatus('pending')
+        scheduleSave(120)
+      } else {
+        removePortfolioDraft(user.id)
+        setSaveStatus('saved')
+      }
+    }
+    return saved
+  }
+
+  async function refreshCloud(confirmDiscard = false) {
+    const hasUnsavedChanges = Boolean(pendingRef.current || inFlightRef.current || conflictRef.current)
+    if (confirmDiscard && hasUnsavedChanges && !confirm('未保存の変更を破棄して、クラウドの最新データを読み込みますか？')) return
+    if (inFlightRef.current) await inFlightRef.current
+    if (!mountedRef.current) return
+
+    const generation = ++generationRef.current
+    clearSaveTimer()
+    pendingRef.current = null
+    conflictRef.current = false
+    if (confirmDiscard) {
+      removePortfolioDraft(user.id)
+      setConflictingDraft(null)
+    }
+    setLoading(true)
+    setLoadError(null)
+    setSaveError(null)
+
+    try {
+      const snapshot = await loadPortfolioSnapshot<PortfolioState>()
+      if (generation !== generationRef.current || !mountedRef.current) return
+      if (!snapshot) {
+        revisionRef.current = 0
+        const draft = confirmDiscard ? null : readPortfolioDraft(user.id)
+        if (draft) {
+          setPortfolio(emptyPortfolio())
+          setSetupRequired(false)
+          setConflictingDraft(draft)
+          setSaveStatus('conflict')
+          setSaveError('クラウドと異なる未保存データがこの端末に残っています。使用するデータを選んでください。')
+        } else {
+          setPortfolio(null)
+          setLegacyState(legacyAvailability(user.id))
+          setSetupRequired(true)
+          setConflictingDraft(null)
+          setSaveStatus('saved')
+        }
+      } else {
+        if (snapshot.schemaVersion > 1) {
+          throw new PortfolioRepositoryError('unsupported_portfolio_schema', 'UNSUPPORTED_SCHEMA')
+        }
+        revisionRef.current = snapshot.revision
+        const draft = confirmDiscard ? null : readPortfolioDraft(user.id)
+        const recoverDraft = draft?.baseRevision === snapshot.revision
+        const nextPortfolio = recoverDraft && draft ? draft.state : normalizePortfolio(snapshot.state)
+        setPortfolio(nextPortfolio)
+        setSetupRequired(false)
+        setLedgerVersion(version => version + 1)
+        if (recoverDraft) {
+          setConflictingDraft(null)
+          pendingRef.current = nextPortfolio
+          setSaveStatus('pending')
+          scheduleSave(150)
+        } else if (draft) {
+          setConflictingDraft(draft)
+          setSaveStatus('conflict')
+          setSaveError('クラウドと異なる未保存データがこの端末に残っています。使用するデータを選んでください。')
+        } else {
+          setConflictingDraft(null)
+          setSaveStatus('saved')
+        }
+      }
+    } catch (error) {
+      if (generation !== generationRef.current || !mountedRef.current) return
+      setLoadError(friendlyPortfolioError(error))
+    } finally {
+      if (generation === generationRef.current && mountedRef.current) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    mountedRef.current = true
+    void refreshCloud()
+    return () => {
+      mountedRef.current = false
+      generationRef.current += 1
+      clearSaveTimer()
+    }
+  }, [user.id])
+
+  useEffect(() => {
+    if (saveStatus === 'saved') return
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [saveStatus])
+
+  const initializePortfolio = async (useLegacy: boolean) => {
+    setSetupBusy(true)
+    setLoadError(null)
+    try {
+      const initialPortfolio = useLegacy ? readLegacyPortfolio() : emptyPortfolio()
+      const result = await savePortfolioSnapshot(user.id, initialPortfolio, 0)
+      revisionRef.current = result.revision
+      if (legacyState.available) markLegacyClaimed(user.id)
+      removePortfolioDraft(user.id)
+      setConflictingDraft(null)
+      setPortfolio(initialPortfolio)
+      setSetupRequired(false)
+      setSaveStatus('saved')
+      setLedgerVersion(version => version + 1)
+    } catch (error) {
+      if (
+        error instanceof PortfolioRepositoryError
+        && (['40001', 'PT409'].includes(error.code || '') || error.message.includes('portfolio_revision_conflict'))
+      ) {
+        await refreshCloud()
+      } else {
+        setLoadError(friendlyPortfolioError(error))
+      }
+    } finally {
+      setSetupBusy(false)
+    }
+  }
+
+  const handlePortfolioChange = (next: PortfolioState) => {
+    setPortfolio(next)
+    pendingRef.current = next
+    writePortfolioDraft(user.id, revisionRef.current, next)
+    if (conflictRef.current) return
+    setSaveStatus('pending')
+    setSaveError(null)
+    scheduleSave()
+  }
+
+  const retrySave = () => {
+    if (conflictRef.current) {
+      void refreshCloud(true)
+      return
+    }
+    void flushRef.current()
+  }
+
+  const signOut = async () => {
+    clearSaveTimer()
+    let saved = true
+    if ((pendingRef.current || inFlightRef.current) && !conflictRef.current) saved = await flushRef.current()
+    if (conflictRef.current) saved = false
+    if (!saved && !confirm('クラウドに保存できていない変更があります。このままログアウトしますか？')) return
+    const { error } = await supabase?.auth.signOut({ scope: 'local' }) || {}
+    if (error) alert('ログアウトできませんでした。通信状態を確認して、もう一度お試しください。')
+  }
+
+  if (loading) return <CenteredStatus title="クラウド帳簿を読み込み中" />
+  if (loadError) {
+    return <CloudErrorScreen
+      message={loadError}
+      onRetry={() => void refreshCloud()}
+      onSignOut={signOut}
+    />
+  }
+  if (conflictingDraft) {
+    return <DraftRecoveryScreen
+      draft={conflictingDraft}
+      hasCloudSnapshot={revisionRef.current > 0}
+      onUseCloud={() => {
+        removePortfolioDraft(user.id)
+        setConflictingDraft(null)
+        setSaveError(null)
+        setSaveStatus('saved')
+        if (revisionRef.current === 0) {
+          setPortfolio(null)
+          setLegacyState(legacyAvailability(user.id))
+          setSetupRequired(true)
+        }
+      }}
+      onRecover={() => {
+        if (!confirm('この端末の未保存データでクラウド帳簿を更新しますか？')) return
+        const recovered = conflictingDraft.state
+        writePortfolioDraft(user.id, revisionRef.current, recovered)
+        pendingRef.current = recovered
+        setPortfolio(recovered)
+        setConflictingDraft(null)
+        setSaveError(null)
+        setSaveStatus('pending')
+        setSetupRequired(false)
+        setLedgerVersion(version => version + 1)
+        scheduleSave(100)
+      }}
+      onSignOut={signOut}
+    />
+  }
+  if (setupRequired || !portfolio) {
+    return <PortfolioSetupScreen
+      user={user}
+      legacyAvailable={legacyState.available}
+      claimedByAnotherAccount={legacyState.claimedByAnotherAccount}
+      legacyPreview={legacyState.available ? getLegacyPreview() : null}
+      busy={setupBusy}
+      onImport={() => void initializePortfolio(true)}
+      onStart={() => {
+        if (
+          legacyState.available
+          && !confirm('この端末の既存データを取り込まず、空の帳簿を作成しますか？\n\n既存データは端末に残り、帳簿が空の間はマイページから復元できます。')
+        ) return
+        void initializePortfolio(false)
+      }}
+      onSignOut={signOut}
+    />
+  }
+
+  const canRestoreLegacy = legacyAvailability(user.id).available
+    && portfolio.trades.length === 0
+    && portfolio.products.length === 0
+    && portfolio.collection.manualCards.length === 0
+  const restoreLegacy = async () => {
+    if (!confirm('この端末の既存データで、現在の空の帳簿を復元しますか？')) return
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const legacyPortfolio = readLegacyPortfolio()
+      const result = await savePortfolioSnapshot(user.id, legacyPortfolio, revisionRef.current)
+      revisionRef.current = result.revision
+      markLegacyClaimed(user.id)
+      removePortfolioDraft(user.id)
+      setPortfolio(legacyPortfolio)
+      setSaveStatus('saved')
+      setLedgerVersion(version => version + 1)
+    } catch (error) {
+      setLoadError(friendlyPortfolioError(error))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return <LedgerApp
+    key={`${user.id}-${ledgerVersion}`}
+    initialPortfolio={portfolio}
+    user={user}
+    saveStatus={saveStatus}
+    saveError={saveError}
+    onPortfolioChange={handlePortfolioChange}
+    onRetrySave={retrySave}
+    onReloadCloud={() => void refreshCloud(true)}
+    onSignOut={signOut}
+    onRestoreLegacy={canRestoreLegacy ? () => void restoreLegacy() : undefined}
+  />
+}
+
+function CenteredStatus({ title }: { title: string }) {
+  return <div className="auth-shell">
+    <div className="auth-status" role="status">
+      <LoaderCircle className="spin" size={25} />
+      <strong>{title}</strong>
+    </div>
+  </div>
+}
+
+function LoginScreen({ busy, error, configured, onLogin }: {
+  busy: boolean
+  error: string | null
+  configured: boolean
+  onLogin: () => void
+}) {
+  return <div className="auth-shell">
+    <main className="auth-card">
+      <div className="auth-brand"><span className="brand-mark"><i /></span><strong>Poke Invest</strong></div>
+      <div className="auth-copy">
+        <span className="auth-badge"><ShieldCheck size={14} /> 個人用ポートフォリオ</span>
+        <h1>コレクション投資を、<br />ひとつの場所で。</h1>
+        <p>購入・売却・在庫・コレクションを、あなた専用のクラウド帳簿で管理できます。</p>
+      </div>
+      {error && <div className="auth-error" role="alert"><CloudOff size={17} /><span>{error}</span></div>}
+      <button className="google-login" disabled={busy || !configured} onClick={onLogin}>
+        {busy ? <LoaderCircle className="spin" size={19} /> : <LogIn size={19} />}
+        {busy ? 'Googleに接続中…' : 'Googleでログイン'}
+      </button>
+      <small className="auth-privacy">ログインにはGoogleのメールアドレスと基本プロフィールのみを使用します。</small>
+    </main>
+  </div>
+}
+
+function PortfolioSetupScreen({ user, legacyAvailable, claimedByAnotherAccount, legacyPreview, busy, onImport, onStart, onSignOut }: {
+  user: User
+  legacyAvailable: boolean
+  claimedByAnotherAccount: boolean
+  legacyPreview: ReturnType<typeof getLegacyPreview> | null
+  busy: boolean
+  onImport: () => void
+  onStart: () => void
+  onSignOut: () => void
+}) {
+  return <div className="auth-shell">
+    <main className="auth-card setup-card">
+      <AccountIdentity user={user} />
+      <div className="auth-copy">
+        <span className="auth-badge"><Cloud size={14} /> 初回設定</span>
+        <h1>このアカウントの<br />帳簿を準備します。</h1>
+        <p>一度作成すると、このGoogleアカウントでログインした端末から同じデータを確認できます。</p>
+      </div>
+      {legacyPreview?.readable && <div className="legacy-preview">
+        <span><b>{legacyPreview.trades.toLocaleString()}</b><small>取引履歴</small></span>
+        <span><b>{legacyPreview.products.toLocaleString()}</b><small>商品</small></span>
+        <span><b>{legacyPreview.cards.toLocaleString()}</b><small>手動カード</small></span>
+      </div>}
+      {legacyAvailable && legacyPreview && !legacyPreview.readable && <p className="setup-warning">既存データの一部を読み取れません。元の画面からCSVを保存してから、データを確認してください。</p>}
+      {legacyAvailable && <button className="setup-primary" disabled={busy || !legacyPreview?.readable} onClick={onImport}>
+        {busy ? <LoaderCircle className="spin" size={18} /> : <Download size={18} />}
+        この端末の既存データを取り込む
+      </button>}
+      <button className={legacyAvailable ? 'setup-secondary' : 'setup-primary'} disabled={busy} onClick={onStart}>
+        {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
+        新しい空の帳簿を始める
+      </button>
+      {claimedByAnotherAccount && <p className="setup-warning">この端末の既存データは別のアカウントに取り込み済みのため、重複取り込みを防止しています。</p>}
+      {legacyAvailable && <p className="setup-note">既存データは、クラウド保存が確認できるまで端末から削除しません。</p>}
+      <button className="auth-signout" disabled={busy} onClick={onSignOut}><LogOut size={15} /> 別のアカウントを使う</button>
+    </main>
+  </div>
+}
+
+function CloudErrorScreen({ message, onRetry, onSignOut }: { message: string; onRetry: () => void; onSignOut: () => void }) {
+  return <div className="auth-shell">
+    <main className="auth-card compact-auth-card">
+      <span className="cloud-error-icon"><CloudOff size={26} /></span>
+      <div className="auth-copy"><h1>帳簿を開けませんでした。</h1><p>{message}</p></div>
+      <button className="setup-primary" onClick={onRetry}><RefreshCw size={17} /> もう一度読み込む</button>
+      <button className="auth-signout" onClick={onSignOut}><LogOut size={15} /> ログアウト</button>
+    </main>
+  </div>
+}
+
+function DraftRecoveryScreen({ draft, hasCloudSnapshot, onUseCloud, onRecover, onSignOut }: {
+  draft: PortfolioDraft
+  hasCloudSnapshot: boolean
+  onUseCloud: () => void
+  onRecover: () => void
+  onSignOut: () => void
+}) {
+  const updatedAt = Date.parse(draft.updatedAt)
+  return <div className="auth-shell">
+    <main className="auth-card compact-auth-card draft-recovery-card">
+      <span className="cloud-error-icon draft-icon"><RefreshCw size={26} /></span>
+      <div className="auth-copy">
+        <h1>未保存データが見つかりました。</h1>
+        <p>アプリ終了前の変更がこの端末に残っています。内容を確認して、使用するデータを選んでください。</p>
+      </div>
+      <div className="draft-summary">
+        <span><b>{draft.state.trades.length.toLocaleString()}</b><small>取引履歴</small></span>
+        <span><b>{draft.state.products.length.toLocaleString()}</b><small>商品</small></span>
+        <span><b>{draft.state.collection.manualCards.length.toLocaleString()}</b><small>手動カード</small></span>
+      </div>
+      {Number.isFinite(updatedAt) && <p className="draft-time">端末保存：{new Date(updatedAt).toLocaleString('ja-JP')}</p>}
+      <button className="setup-primary" onClick={onRecover}><RefreshCw size={17} /> この端末の未保存データを復元</button>
+      <button className="setup-secondary" onClick={onUseCloud}><Cloud size={17} /> {hasCloudSnapshot ? 'クラウドの最新データを使う' : '未保存データを破棄して新規作成'}</button>
+      <button className="auth-signout" onClick={onSignOut}><LogOut size={15} /> ログアウト</button>
+    </main>
+  </div>
+}
+
+function AccountIdentity({ user }: { user: User }) {
+  const avatar = userAvatar(user)
+  return <div className="account-identity">
+    {avatar
+      ? <img src={avatar} alt="" referrerPolicy="no-referrer" />
+      : <span><UserRound size={19} /></span>}
+    <div><strong>{userDisplayName(user)}</strong><small>{user.email || 'Googleアカウント'}</small></div>
+  </div>
+}
+
+function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioChange, onRetrySave, onReloadCloud, onSignOut, onRestoreLegacy }: {
+  initialPortfolio: PortfolioState
+  user: User
+  saveStatus: SaveStatus
+  saveError: string | null
+  onPortfolioChange: (next: PortfolioState) => void
+  onRetrySave: () => void
+  onReloadCloud: () => void
+  onSignOut: () => void
+  onRestoreLegacy?: () => void
+}) {
+  const [trades, setTrades] = useState<Trade[]>(initialPortfolio.trades)
+  const [categories, setCategories] = useState<CategoryMaster[]>(initialPortfolio.categories)
+  const [products, setProducts] = useState<Product[]>(initialPortfolio.products)
+  const [sources, setSources] = useState<SourceMaster[]>(initialPortfolio.sources)
+  const [collection, setCollection] = useState<CollectionData>(initialPortfolio.collection)
+  const [realizedOverrides, setRealizedOverrides] = useState<Record<string, RealizedOverride>>(initialPortfolio.realizedOverrides)
+  const lastPortfolioRef = useRef(initialPortfolio)
   const [tab, setTab] = useState<Tab>('home')
   const [transactionSide, setTransactionSide] = useState<'buy' | 'sell'>('buy')
   const [productModal, setProductModal] = useState<Product | 'new' | null>(null)
@@ -359,6 +1238,29 @@ export function App() {
   }, [hasOpenModal])
 
   useEffect(() => {
+    const previous = lastPortfolioRef.current
+    if (
+      previous.trades === trades
+      && previous.categories === categories
+      && previous.products === products
+      && previous.sources === sources
+      && previous.collection === collection
+      && previous.realizedOverrides === realizedOverrides
+    ) return
+    const next: PortfolioState = {
+      schemaVersion: 1,
+      trades,
+      categories,
+      products,
+      sources,
+      collection,
+      realizedOverrides,
+    }
+    lastPortfolioRef.current = next
+    onPortfolioChange(next)
+  }, [categories, collection, onPortfolioChange, products, realizedOverrides, sources, trades])
+
+  useEffect(() => {
     let changed = false
     const linkedTrades = trades.map(trade => {
       const source = sourceForTrade(trade, sources)
@@ -368,7 +1270,6 @@ export function App() {
     })
     if (!changed) return
     setTrades(linkedTrades)
-    localStorage.setItem(TRADE_STORAGE, JSON.stringify(linkedTrades))
   }, [sources, trades])
 
   const stats = useMemo(() => products.map(product => calculateStats(product, trades)), [products, trades])
@@ -409,27 +1310,21 @@ export function App() {
 
   const persistTrades = (next: Trade[]) => {
     setTrades(next)
-    localStorage.setItem(TRADE_STORAGE, JSON.stringify(next))
   }
   const persistProducts = (next: Product[]) => {
     setProducts(next)
-    localStorage.setItem(PRODUCT_STORAGE, JSON.stringify(next))
   }
   const persistCategories = (next: CategoryMaster[]) => {
     setCategories(next)
-    localStorage.setItem(CATEGORY_STORAGE, JSON.stringify(next))
   }
   const persistSources = (next: SourceMaster[]) => {
     setSources(next)
-    localStorage.setItem(SOURCE_STORAGE, JSON.stringify(next))
   }
   const persistCollection = (next: CollectionData) => {
     setCollection(next)
-    localStorage.setItem(COLLECTION_STORAGE, JSON.stringify(next))
   }
   const persistRealizedOverrides = (next: Record<string, RealizedOverride>) => {
     setRealizedOverrides(next)
-    localStorage.setItem(REALIZED_STORAGE, JSON.stringify(next))
   }
   const saveProduct = (product: Product) => {
     const existing = products.find(item => item.id === product.id)
@@ -537,19 +1432,6 @@ export function App() {
   const saveTradeEntry = (product: Product, trade: Trade, isNewProduct: boolean) => {
     const nextProducts = isNewProduct ? [...products, product] : products
     const nextTrades = [trade, ...trades]
-    const previousProducts = localStorage.getItem(PRODUCT_STORAGE)
-    const previousTrades = localStorage.getItem(TRADE_STORAGE)
-    try {
-      localStorage.setItem(PRODUCT_STORAGE, JSON.stringify(nextProducts))
-      localStorage.setItem(TRADE_STORAGE, JSON.stringify(nextTrades))
-    } catch {
-      if (previousProducts === null) localStorage.removeItem(PRODUCT_STORAGE)
-      else localStorage.setItem(PRODUCT_STORAGE, previousProducts)
-      if (previousTrades === null) localStorage.removeItem(TRADE_STORAGE)
-      else localStorage.setItem(TRADE_STORAGE, previousTrades)
-      alert('保存できませんでした。端末の空き容量を確認して、もう一度お試しください。')
-      return
-    }
     setProducts(nextProducts)
     setTrades(nextTrades)
     setEntryType(null)
@@ -590,11 +1472,33 @@ export function App() {
       setHistoryKey(null)
     }
   }
+  const saveLabel: Record<SaveStatus, string> = {
+    saved: '保存済み',
+    pending: '未保存',
+    saving: '保存中',
+    error: '保存失敗',
+    conflict: '更新あり',
+  }
 
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark"><i /></span><strong>Poke Invest</strong></div>
+      <div className={`sync-pill ${saveStatus}`} role="status">
+        {saveStatus === 'saving'
+          ? <LoaderCircle className="spin" size={13} />
+          : saveStatus === 'error' || saveStatus === 'conflict'
+            ? <CloudOff size={13} />
+            : <Cloud size={13} />}
+        <span>{saveLabel[saveStatus]}</span>
+      </div>
     </header>
+    {saveError && <div className={`sync-banner ${saveStatus === 'conflict' ? 'conflict' : ''}`} role="alert">
+      <span>{saveError}</span>
+      <div>
+        {saveStatus !== 'conflict' && <button onClick={onRetrySave}><RefreshCw size={13} /> 再保存</button>}
+        <button onClick={onReloadCloud}><Cloud size={13} /> 最新を読込</button>
+      </div>
+    </div>}
 
     <main>
       {tab === 'home' && <>
@@ -666,7 +1570,17 @@ export function App() {
         onEditManual={setCollectionModal}
         onHideProduct={hideCollectionProduct}
       />}
-      {tab === 'profile' && <SettingsPage categories={categories} sources={sources} onAddCategory={addCategory} onToggleCategory={toggleCategory} onAddSource={addSource} onToggleSource={toggleSource} />}
+      {tab === 'profile' && <SettingsPage
+        user={user}
+        categories={categories}
+        sources={sources}
+        onAddCategory={addCategory}
+        onToggleCategory={toggleCategory}
+        onAddSource={addSource}
+        onToggleSource={toggleSource}
+        onSignOut={onSignOut}
+        onRestoreLegacy={onRestoreLegacy}
+      />}
     </main>
 
     <nav className="bottom-nav">
@@ -1026,13 +1940,16 @@ function CollectionModal({ card, hiddenProducts, onClose, onSave, onDelete, onRe
   </div>
 }
 
-function SettingsPage({ categories, sources, onAddCategory, onToggleCategory, onAddSource, onToggleSource }: {
+function SettingsPage({ user, categories, sources, onAddCategory, onToggleCategory, onAddSource, onToggleSource, onSignOut, onRestoreLegacy }: {
+  user: User
   categories: CategoryMaster[]
   sources: SourceMaster[]
   onAddCategory: (name: string, unitType: UnitType) => void
   onToggleCategory: (id: string) => void
   onAddSource: (name: string) => void
   onToggleSource: (id: string) => void
+  onSignOut: () => void
+  onRestoreLegacy?: () => void
 }) {
   const [categoryName, setCategoryName] = useState('')
   const [categoryUnitType, setCategoryUnitType] = useState<UnitType>('unknown')
@@ -1049,7 +1966,14 @@ function SettingsPage({ categories, sources, onAddCategory, onToggleCategory, on
   }
   return <section className="page section settings-page">
     <div className="page-title-row"><div><p className="eyebrow">MY PAGE</p><h1>マイページ</h1></div><span className="settings-icon"><Settings size={19} /></span></div>
-    <p className="page-description">取引登録と絞り込みで使用するカテゴリーを管理できます。</p>
+    <p className="page-description">アカウントと、取引登録で使用するカテゴリーを管理できます。</p>
+
+    <div className="account-panel">
+      <AccountIdentity user={user} />
+      <div className="account-cloud"><Cloud size={14} /><span>このアカウントにクラウド保存中</span></div>
+      {onRestoreLegacy && <button className="legacy-restore" onClick={onRestoreLegacy}><Download size={15} /> この端末の既存データを復元</button>}
+      <button className="account-signout" onClick={onSignOut}><LogOut size={15} /> ログアウト</button>
+    </div>
 
     <details className="settings-panel">
       <summary className="settings-heading"><span className="settings-heading-icon"><Tag size={15} /></span><div><h2>商品カテゴリー</h2><p>商品登録時の分類と取引履歴の絞り込みに使用します。</p></div><span className="settings-heading-meta"><b>有効 {categories.filter(category => category.active).length}/{categories.length}</b><ChevronDown className="settings-heading-chevron" size={17} /></span></summary>
