@@ -1726,13 +1726,12 @@ function TransactionPage({
         </div>
       </> : <div className="sale-table-scroll" role="region" aria-label="売却商品一覧。横にスクロールできます。" tabIndex={0}>
         <table className="sale-table">
-          <colgroup><col /><col /><col /><col /><col /><col /><col /><col /></colgroup>
-          <thead><tr><th scope="col">商品 / カテゴリー</th><th scope="col">在庫</th><th scope="col">販売数</th><th scope="col">取引合計</th><th scope="col">購入原価</th><th scope="col">売却純額</th><th scope="col">利益</th><th scope="col"><span className="sr-only">履歴</span></th></tr></thead>
+          <colgroup><col /><col /><col /><col /><col /><col /></colgroup>
+          <thead><tr><th scope="col">商品 / カテゴリー</th><th scope="col">販売数</th><th scope="col">購入原価</th><th scope="col">売却純額</th><th scope="col">利益</th><th scope="col"><span className="sr-only">履歴</span></th></tr></thead>
           {visibleStats.map(item => {
             const key = `${type}|${item.product.id}`
             const histories = historiesFor(item)
             const filteredQuantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
-            const filteredAmount = histories.reduce((sum, trade) => sum + trade.amount, 0)
             const saleValues = saleValuesFor(item, histories)
             const activeCategory = categories.find(category => category.id === item.product.categoryId || (!item.product.categoryId && normalize(category.name) === normalize(item.product.category)))
             const canAddTransaction = Boolean(activeCategory)
@@ -1741,18 +1740,16 @@ function TransactionPage({
             return <tbody className={saleValues.overridden ? 'overridden' : ''} key={item.product.id}>
               <tr>
                 <th scope="row" className="sale-product-cell"><button disabled={!canAddTransaction} onClick={() => onAdd(item.product, type)}><strong>{item.product.name}</strong><small>{categoryName}{canAddTransaction ? ' · ＋売却' : ''}</small>{saleValues.overridden && <em>手動設定</em>}</button></th>
-                <td>{item.stock.toLocaleString()}</td>
                 <td>{filteredQuantity.toLocaleString()}</td>
-                <td>{yen(filteredAmount)}</td>
                 <td className={`sale-editable-cell ${saleValues.cost === null ? 'warning' : ''}`}><button className="sale-value-button" disabled={!canEditProfit} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の購入原価を編集`}>{saleValues.cost === null ? '未確認' : yen(saleValues.cost)}</button></td>
                 <td className="sale-editable-cell"><button className="sale-value-button" disabled={!canEditProfit} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の売却額を編集`}>{yen(saleValues.sale)}</button></td>
                 <td className={`sale-editable-cell ${saleValues.profit === null ? 'warning' : saleValues.profit >= 0 ? 'positive' : 'negative'}`}><button className="sale-value-button sale-profit-button" disabled={!canEditProfit} onClick={() => onEditRealized(item)} aria-label={`${item.product.name}の売却損益を編集`}>{saleValues.profit === null ? '—' : signedYen(saleValues.profit)}{canEditProfit && <Pencil size={11} />}</button></td>
                 <td className="sale-history-cell"><button className={`history-toggle ${historyKey === key ? 'active' : ''}`} aria-label={`${item.product.name}の履歴`} aria-expanded={historyKey === key} aria-controls={`sale-history-${item.product.id}`} onClick={() => onHistory(historyKey === key ? null : key)}><ChevronDown size={15} /></button></td>
               </tr>
-              {historyKey === key && <tr className="sale-history-row"><td colSpan={8}><TradeHistory id={`sale-history-${item.product.id}`} product={item.product} type={type} histories={histories} sources={sources} canAddTransaction={canAddTransaction} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} /></td></tr>}
+              {historyKey === key && <tr className="sale-history-row"><td colSpan={6}><TradeHistory id={`sale-history-${item.product.id}`} product={item.product} type={type} histories={histories} sources={sources} canAddTransaction={canAddTransaction} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} /></td></tr>}
             </tbody>
           })}
-          {!visibleStats.length && <tbody><tr><td colSpan={8}><div className="empty">売却履歴がありません。<br />上の「履歴登録」から追加できます。</div></td></tr></tbody>}
+          {!visibleStats.length && <tbody><tr><td colSpan={6}><div className="empty">売却履歴がありません。<br />上の「履歴登録」から追加できます。</div></td></tr></tbody>}
         </table>
       </div>}
     </div>

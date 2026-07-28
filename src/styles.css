@@ -320,14 +320,12 @@ button:disabled { cursor: not-allowed; }
 .history-toggle.active svg { transform: rotate(180deg); }
 .sale-table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: white; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
 .sale-table-scroll:focus-visible { outline: 2px solid #7c8f83; outline-offset: 2px; }
-.sale-table { width: 628px; border-collapse: separate; border-spacing: 0; table-layout: fixed; background: white; font-variant-numeric: tabular-nums; }
+.sale-table { width: 500px; border-collapse: separate; border-spacing: 0; table-layout: fixed; background: white; font-variant-numeric: tabular-nums; }
 .sale-table col:nth-child(1) { width: 148px; }
-.sale-table col:nth-child(2) { width: 46px; }
-.sale-table col:nth-child(3) { width: 52px; }
-.sale-table col:nth-child(4) { width: 82px; }
-.sale-table col:nth-child(5), .sale-table col:nth-child(6) { width: 84px; }
-.sale-table col:nth-child(7) { width: 88px; }
-.sale-table col:nth-child(8) { width: 44px; }
+.sale-table col:nth-child(2) { width: 52px; }
+.sale-table col:nth-child(3), .sale-table col:nth-child(4) { width: 84px; }
+.sale-table col:nth-child(5) { width: 88px; }
+.sale-table col:nth-child(6) { width: 44px; }
 .sale-table th, .sale-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sale-table thead th { height: 37px; padding: 7px 6px; color: #8d928a; border-bottom: 1px solid var(--line); background: #f1f3ee; font-size: 9px; font-weight: 700; text-align: right; }
 .sale-table thead th + th, .sale-table tbody > tr:first-child > td { border-left: 1px solid var(--line); }
