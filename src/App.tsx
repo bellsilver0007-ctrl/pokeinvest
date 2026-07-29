@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import {
   ArrowLeftRight,
+  ArrowUpDown,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -30,6 +31,7 @@ import { loadPortfolioSnapshot, PortfolioRepositoryError, savePortfolioSnapshot 
 import { supabase, supabaseConfigError } from './supabase'
 
 type Tab = 'home' | 'transactions' | 'collection' | 'profile'
+type TransactionSort = 'latest' | 'oldest' | 'amount-desc' | 'amount-asc' | 'unit-desc' | 'quantity-desc' | 'name'
 type ProductCategory = string
 type CategoryMaster = { id: string; name: string; unitType: UnitType; active: boolean; sortOrder: number }
 type SourceMaster = { id: string; name: string; active: boolean; sortOrder: number; aliases: string[] }
@@ -1709,7 +1711,9 @@ function TransactionPage({
   onRegister: () => void; onExport: () => void
 }) {
   const [touchStart, setTouchStart] = useState<{ x: number; y: number; ignore: boolean } | null>(null)
+  const [sortBySide, setSortBySide] = useState<Record<'buy' | 'sell', TransactionSort>>({ buy: 'latest', sell: 'latest' })
   const isBuy = type === 'buy'
+  const sortBy = sortBySide[type]
   const switchType = (next: 'buy' | 'sell') => { onType(next); onHistory(null) }
   const visibleStats = stats.filter(item => {
     if (sourceFilter === 'すべて') return true
@@ -1717,7 +1721,6 @@ function TransactionPage({
     return histories.some(trade => sourceForTrade(trade, sources)?.id === sourceFilter)
   })
   const historiesFor = (item: ProductStats) => (isBuy ? item.buyTrades : item.sellTrades).filter(trade => sourceFilter === 'すべて' || sourceForTrade(trade, sources)?.id === sourceFilter)
-  if (!isBuy) visibleStats.sort((a, b) => Math.max(...historiesFor(b).map(tradeTime)) - Math.max(...historiesFor(a).map(tradeTime)))
   const saleValuesFor = (item: ProductStats, histories: Trade[]): RealizedDisplay => {
     if (sourceFilter === 'すべて') return getRealizedValues(item)
     const quantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
@@ -1725,6 +1728,31 @@ function TransactionPage({
     const cost = item.soldCost === null || item.averageCost === null ? null : item.averageCost * quantity
     return { cost, sale, profit: cost === null ? null : sale - cost, overridden: false }
   }
+  const sortValues = new Map(visibleStats.map(item => {
+    const histories = historiesFor(item)
+    const quantity = histories.reduce((sum, trade) => sum + trade.quantity, 0)
+    const amount = isBuy
+      ? histories.reduce((sum, trade) => sum + trade.amount, 0)
+      : saleValuesFor(item, histories).sale
+    return [item.product.id, {
+      newest: histories.length ? Math.max(...histories.map(tradeTime)) : 0,
+      quantity,
+      amount,
+      unitPrice: quantity > 0 ? amount / quantity : 0,
+    }] as const
+  }))
+  visibleStats.sort((a, b) => {
+    const aValues = sortValues.get(a.product.id)!
+    const bValues = sortValues.get(b.product.id)!
+    const byName = a.product.name.localeCompare(b.product.name, 'ja')
+    if (sortBy === 'oldest') return aValues.newest - bValues.newest || byName
+    if (sortBy === 'amount-desc') return bValues.amount - aValues.amount || bValues.newest - aValues.newest || byName
+    if (sortBy === 'amount-asc') return aValues.amount - bValues.amount || bValues.newest - aValues.newest || byName
+    if (sortBy === 'unit-desc') return bValues.unitPrice - aValues.unitPrice || bValues.newest - aValues.newest || byName
+    if (sortBy === 'quantity-desc') return bValues.quantity - aValues.quantity || bValues.newest - aValues.newest || byName
+    if (sortBy === 'name') return byName
+    return bValues.newest - aValues.newest || byName
+  })
   const saleEntries = isBuy ? [] : visibleStats.map(item => ({ item, values: saleValuesFor(item, historiesFor(item)) }))
   const confirmedSaleEntries = saleEntries.filter(entry => entry.values.profit !== null)
   const saleSummary = {
@@ -1753,6 +1781,18 @@ function TransactionPage({
     <div className="category-chips"><button className={categoryFilter === 'すべて' ? 'active' : ''} onClick={() => onCategory('すべて')}>すべて</button>{categories.map(category => <button className={categoryFilter === category.id ? 'active' : ''} key={category.id} onClick={() => onCategory(category.id)}>{category.name}</button>)}</div>
     <div className="filter-label"><MapPin size={12} /> {isBuy ? '購入先' : '販売先'}</div>
     <div className="category-chips source-chips"><button className={sourceFilter === 'すべて' ? 'active' : ''} onClick={() => onSource('すべて')}>すべて</button>{sources.map(source => <button className={sourceFilter === source.id ? 'active' : ''} key={source.id} onClick={() => onSource(source.id)}>{source.name}</button>)}</div>
+    <div className="transaction-list-controls">
+      <span>{visibleStats.length.toLocaleString()}商品</span>
+      <label className="transaction-sort"><ArrowUpDown size={13} /><span>並び順</span><select aria-label={`${isBuy ? '購入' : '売却'}一覧の並び順`} value={sortBy} onChange={event => setSortBySide(current => ({ ...current, [type]: event.target.value as TransactionSort }))}>
+        <option value="latest">最新順</option>
+        <option value="oldest">古い順</option>
+        <option value="amount-desc">取引金額が高い順</option>
+        <option value="amount-asc">取引金額が低い順</option>
+        <option value="unit-desc">平均単価が高い順</option>
+        <option value="quantity-desc">数量が多い順</option>
+        <option value="name">商品名順</option>
+      </select></label>
+    </div>
     {!isBuy && <div className="sale-performance-card">
       <div className="sale-performance-head"><span>売却済み商品の損益</span><b>原価確認 {confirmedSaleEntries.length}/{saleEntries.length}</b></div>
       <div className="realized-summary">
