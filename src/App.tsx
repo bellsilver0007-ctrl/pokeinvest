@@ -1097,10 +1097,6 @@ function PortfolioSession({ session }: { session: Session }) {
     />
   }
 
-  const canRestoreLegacy = saveStatus === 'saved'
-    && !conflictRef.current
-    && isPristinePortfolio(portfolio)
-    && hasImportableLegacyData()
   const restoreLegacy = async () => {
     if (legacyImportRef.current) return
     if (
@@ -1112,7 +1108,14 @@ function PortfolioSession({ session }: { session: Session }) {
       alert('クラウド保存が完了してから、もう一度お試しください。')
       return
     }
-    if (!confirm('このブラウザの既存データを、現在のGoogleアカウントに読み込みますか？\n\n現在の空の帳簿は既存データで置き換わります。')) return
+    if (!hasImportableLegacyData()) {
+      alert('このブラウザに既存データが見つかりませんでした。\n\n以前の帳簿を使用していたブラウザ・同じURLから、もう一度お試しください。')
+      return
+    }
+    const overwriteWarning = isPristinePortfolio(portfolio)
+      ? '現在の空の帳簿は既存データで置き換わります。'
+      : '現在の取引・商品・カテゴリーなど、帳簿の内容はすべて既存データで置き換わります。この操作は元に戻せません。'
+    if (!confirm(`このブラウザの既存データを、現在のGoogleアカウントに読み込みますか？\n\n${overwriteWarning}`)) return
     legacyImportRef.current = true
     clearSaveTimer()
     setLoading(true)
@@ -1144,7 +1147,7 @@ function PortfolioSession({ session }: { session: Session }) {
     onRetrySave={retrySave}
     onReloadCloud={() => void refreshCloud(true)}
     onSignOut={signOut}
-    onRestoreLegacy={canRestoreLegacy ? () => void restoreLegacy() : undefined}
+    onRestoreLegacy={() => void restoreLegacy()}
   />
 }
 
@@ -1591,7 +1594,7 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
         onBack={() => setShowProductManager(false)}
         onEdit={setProductModal}
       /> : <>
-        {onRestoreLegacy && <button className="legacy-home-import" onClick={onRestoreLegacy}>
+        {onRestoreLegacy && <button type="button" className="legacy-home-import" onClick={onRestoreLegacy}>
           <span className="legacy-home-icon"><Download size={18} /></span>
           <span><strong>既存データを読み込む</strong><small>このブラウザに残っている以前の帳簿を、このアカウントへコピーします。</small></span>
           <ChevronRight size={18} />
