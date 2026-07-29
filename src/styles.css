@@ -245,18 +245,13 @@ button:disabled { cursor: not-allowed; }
 .info-note, .page-hint { margin: 8px 3px 0; color: #939790; font-size: 8px; line-height: 1.55; }
 
 .product-master { overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: white; }
-.master-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px 30px; align-items: center; gap: 8px; padding: 11px 10px 11px 13px; border-bottom: 1px solid var(--line); }
+.master-row { display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; gap: 8px; padding: 11px 10px 11px 13px; border-bottom: 1px solid var(--line); }
 .master-row:last-child { border-bottom: 0; }
 .master-info, .row-edit { border: 0; background: transparent; }
 .master-info { min-width: 0; padding: 0; text-align: left; }
 .master-info strong, .master-info small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .master-info strong { font-size: 11px; }
 .master-info small { margin-top: 3px; color: var(--muted); font-size: 8px; }
-.price-input { position: relative; margin: 0; }
-.price-input span { display: block; margin-bottom: 3px; color: #969a93; font-size: 7px; }
-.price-input b { position: absolute; left: 8px; bottom: 7px; color: #777b75; font-size: 10px; }
-.price-input input { width: 100%; height: 29px; padding: 5px 6px 5px 20px; border: 1px solid #dcdfd8; border-radius: 8px; outline: 0; background: #fafbf7; font-size: 10px; text-align: right; }
-.price-input input:focus { border-color: #8d938a; background: white; }
 .row-edit { width: 29px; height: 29px; padding: 0; display: grid; place-items: center; color: #72766f; border: 1px solid var(--line); border-radius: 8px; }
 .product-management-page { padding-bottom: 28px; }
 .product-management-back { margin: 0 0 18px -5px; padding: 6px 5px; display: inline-flex; align-items: center; gap: 2px; color: #70756d; border: 0; background: transparent; font-size: 9px; font-weight: 800; }
@@ -517,7 +512,7 @@ button:disabled { cursor: not-allowed; }
   .ledger-head.buy { grid-template-columns: minmax(92px, 1fr) 47px 67px 40px; }
   .ledger-main.buy .ledger-add { grid-template-columns: minmax(92px, 1fr) 47px 67px; }
   .sale-history-row .trade-history { width: calc(100vw - 30px); }
-  .master-row { grid-template-columns: minmax(0, 1fr) 94px 29px; }
+  .master-row { grid-template-columns: minmax(0, 1fr) 29px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

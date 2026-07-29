@@ -1521,7 +1521,6 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
         categoryNameForProduct={categoryNameForProduct}
         onBack={() => setShowProductManager(false)}
         onEdit={setProductModal}
-        onExpectedPrice={setExpectedPrice}
       /> : <>
         <section className="hero">
           <p className="eyebrow">TOTAL PERFORMANCE</p>
@@ -1553,7 +1552,6 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
               stats={recentProductStats}
               categoryNameForProduct={categoryNameForProduct}
               onEdit={setProductModal}
-              onExpectedPrice={setExpectedPrice}
               emptyText="商品情報がありません。"
             />
           </div>
@@ -1655,11 +1653,10 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
   </div>
 }
 
-function ProductMasterRows({ stats, categoryNameForProduct, onEdit, onExpectedPrice, emptyText }: {
+function ProductMasterRows({ stats, categoryNameForProduct, onEdit, emptyText }: {
   stats: ProductStats[]
   categoryNameForProduct: (product: Product) => string
   onEdit: (product: Product) => void
-  onExpectedPrice: (productId: string, value: number) => void
   emptyText: string
 }) {
   return <>
@@ -1667,19 +1664,17 @@ function ProductMasterRows({ stats, categoryNameForProduct, onEdit, onExpectedPr
       <button className="master-info" onClick={() => onEdit(item.product)}>
         <strong>{item.product.name}</strong><small>{categoryNameForProduct(item.product)} · 在庫 {item.stock.toLocaleString()}個</small>
       </button>
-      <label className="price-input"><span>想定売価</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => onExpectedPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
       <button className="row-edit" aria-label={`${item.product.name}の商品情報を編集`} onClick={() => onEdit(item.product)}><Pencil size={14} /></button>
     </article>)}
     {!stats.length && <div className="empty">{emptyText}</div>}
   </>
 }
 
-function ProductManagementPage({ stats, categoryNameForProduct, onBack, onEdit, onExpectedPrice }: {
+function ProductManagementPage({ stats, categoryNameForProduct, onBack, onEdit }: {
   stats: ProductStats[]
   categoryNameForProduct: (product: Product) => string
   onBack: () => void
   onEdit: (product: Product) => void
-  onExpectedPrice: (productId: string, value: number) => void
 }) {
   const [query, setQuery] = useState('')
   const matchingStats = stats
@@ -1687,7 +1682,7 @@ function ProductManagementPage({ stats, categoryNameForProduct, onBack, onEdit, 
   return <section className="page section product-management-page">
     <button className="product-management-back" onClick={onBack}><ChevronLeft size={17} /> ホームに戻る</button>
     <div className="page-title-row product-management-title"><div><p className="eyebrow">PRODUCT MASTER</p><h1>商品管理</h1></div><span className="count-label">{stats.length}商品</span></div>
-    <p className="page-description">商品の検索、想定売価の入力、商品情報の編集ができます。</p>
+    <p className="page-description">商品の検索と商品情報の編集ができます。</p>
     <div className="search-box"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="商品名・カテゴリーで検索" /></div>
     <div className="product-manager-meta"><span>新しい商品は取引履歴の登録時に追加できます。</span><b>{matchingStats.length} / {stats.length}商品</b></div>
     <div className="product-master product-manager-list">
@@ -1695,7 +1690,6 @@ function ProductManagementPage({ stats, categoryNameForProduct, onBack, onEdit, 
         stats={matchingStats}
         categoryNameForProduct={categoryNameForProduct}
         onEdit={onEdit}
-        onExpectedPrice={onExpectedPrice}
         emptyText={query ? '条件に一致する商品がありません。' : '商品情報がありません。'}
       />
     </div>
