@@ -415,6 +415,38 @@ function emptyPortfolio(): PortfolioState {
   }
 }
 
+function isPristinePortfolio(portfolio: PortfolioState) {
+  const categoriesAreDefault = portfolio.categories.length === defaultCategories.length
+    && portfolio.categories.every((category, index) => {
+      const fallback = defaultCategories[index]
+      return Boolean(fallback)
+        && category.id === fallback.id
+        && category.name === fallback.name
+        && category.unitType === fallback.unitType
+        && category.active === fallback.active
+        && category.sortOrder === fallback.sortOrder
+    })
+  const sourcesAreDefault = portfolio.sources.length === defaultSources.length
+    && portfolio.sources.every((source, index) => {
+      const fallback = defaultSources[index]
+      return Boolean(fallback)
+        && source.id === fallback.id
+        && source.name === fallback.name
+        && source.active === fallback.active
+        && source.sortOrder === fallback.sortOrder
+        && source.aliases.length === fallback.aliases.length
+        && source.aliases.every((alias, aliasIndex) => alias === fallback.aliases[aliasIndex])
+    })
+
+  return portfolio.trades.length === 0
+    && portfolio.products.length === 0
+    && portfolio.collection.manualCards.length === 0
+    && portfolio.collection.hiddenProductIds.length === 0
+    && Object.keys(portfolio.realizedOverrides).length === 0
+    && categoriesAreDefault
+    && sourcesAreDefault
+}
+
 function normalizePortfolio(value: unknown): PortfolioState {
   if (!isRecord(value)) return emptyPortfolio()
 
@@ -609,9 +641,30 @@ function readLegacyPortfolio(): PortfolioState {
   })
 }
 
+function hasLegacyData() {
+  try {
+    return legacyStorageKeys.some(key => localStorage.getItem(key) !== null)
+  } catch {
+    return false
+  }
+}
+
+function hasImportableLegacyData() {
+  if (!hasLegacyData()) return false
+  try {
+    const portfolio = readLegacyPortfolio()
+    const hasSavedCollection = localStorage.getItem(COLLECTION_STORAGE) !== null
+    return portfolio.trades.length > 0
+      || portfolio.products.length > 0
+      || (hasSavedCollection && portfolio.collection.manualCards.length > 0)
+  } catch {
+    return false
+  }
+}
+
 function legacyAvailability(userId: string) {
   try {
-    const hasData = legacyStorageKeys.some(key => localStorage.getItem(key) !== null)
+    const hasData = hasLegacyData()
     const claimedBy = localStorage.getItem(LEGACY_CLAIM_STORAGE)
     return {
       available: hasData && (!claimedBy || claimedBy === userId),
@@ -772,6 +825,7 @@ function PortfolioSession({ session }: { session: Session }) {
   const generationRef = useRef(0)
   const mountedRef = useRef(true)
   const conflictRef = useRef(false)
+  const legacyImportRef = useRef(false)
 
   const clearSaveTimer = () => {
     if (timerRef.current !== null) {
@@ -1035,7 +1089,7 @@ function PortfolioSession({ session }: { session: Session }) {
       onStart={() => {
         if (
           legacyState.available
-          && !confirm('この端末の既存データを取り込まず、空の帳簿を作成しますか？\n\n既存データは端末に残り、帳簿が空の間はマイページから復元できます。')
+          && !confirm('この端末の既存データを取り込まず、空の帳簿を作成しますか？\n\n既存データは端末に残り、帳簿が空の間はホーム上部から読み込めます。')
         ) return
         void initializePortfolio(false)
       }}
@@ -1043,12 +1097,24 @@ function PortfolioSession({ session }: { session: Session }) {
     />
   }
 
-  const canRestoreLegacy = legacyAvailability(user.id).available
-    && portfolio.trades.length === 0
-    && portfolio.products.length === 0
-    && portfolio.collection.manualCards.length === 0
+  const canRestoreLegacy = saveStatus === 'saved'
+    && !conflictRef.current
+    && isPristinePortfolio(portfolio)
+    && hasImportableLegacyData()
   const restoreLegacy = async () => {
-    if (!confirm('この端末の既存データで、現在の空の帳簿を復元しますか？')) return
+    if (legacyImportRef.current) return
+    if (
+      saveStatus !== 'saved'
+      || pendingRef.current
+      || inFlightRef.current
+      || conflictRef.current
+    ) {
+      alert('クラウド保存が完了してから、もう一度お試しください。')
+      return
+    }
+    if (!confirm('このブラウザの既存データを、現在のGoogleアカウントに読み込みますか？\n\n現在の空の帳簿は既存データで置き換わります。')) return
+    legacyImportRef.current = true
+    clearSaveTimer()
     setLoading(true)
     setLoadError(null)
     try {
@@ -1063,6 +1129,7 @@ function PortfolioSession({ session }: { session: Session }) {
     } catch (error) {
       setLoadError(friendlyPortfolioError(error))
     } finally {
+      legacyImportRef.current = false
       setLoading(false)
     }
   }
@@ -1146,7 +1213,7 @@ function PortfolioSetupScreen({ user, legacyAvailable, claimedByAnotherAccount, 
         {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
         新しい空の帳簿を始める
       </button>
-      {claimedByAnotherAccount && <p className="setup-warning">この端末の既存データは別のアカウントに取り込み済みのため、重複取り込みを防止しています。</p>}
+      {claimedByAnotherAccount && <p className="setup-warning">このブラウザの既存データは別のアカウントに取り込み済みです。空の帳簿を作成すると、ホーム上部から同じデータを読み込めます。</p>}
       {legacyAvailable && <p className="setup-note">既存データは、クラウド保存が確認できるまで端末から削除しません。</p>}
       <button className="auth-signout" disabled={busy} onClick={onSignOut}><LogOut size={15} /> 別のアカウントを使う</button>
     </main>
@@ -1524,6 +1591,11 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
         onBack={() => setShowProductManager(false)}
         onEdit={setProductModal}
       /> : <>
+        {onRestoreLegacy && <button className="legacy-home-import" onClick={onRestoreLegacy}>
+          <span className="legacy-home-icon"><Download size={18} /></span>
+          <span><strong>既存データを読み込む</strong><small>このブラウザに残っている以前の帳簿を、このアカウントへコピーします。</small></span>
+          <ChevronRight size={18} />
+        </button>}
         <section className="hero">
           <p className="eyebrow">TOTAL PERFORMANCE</p>
           <span className="hero-label">推定総損益</span>
@@ -1601,7 +1673,6 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
         onAddSource={addSource}
         onToggleSource={toggleSource}
         onSignOut={onSignOut}
-        onRestoreLegacy={onRestoreLegacy}
       />}
     </main>
 
@@ -2040,7 +2111,7 @@ function CollectionModal({ card, hiddenProducts, onClose, onSave, onDelete, onRe
   </div>
 }
 
-function SettingsPage({ user, categories, sources, onAddCategory, onToggleCategory, onAddSource, onToggleSource, onSignOut, onRestoreLegacy }: {
+function SettingsPage({ user, categories, sources, onAddCategory, onToggleCategory, onAddSource, onToggleSource, onSignOut }: {
   user: User
   categories: CategoryMaster[]
   sources: SourceMaster[]
@@ -2049,7 +2120,6 @@ function SettingsPage({ user, categories, sources, onAddCategory, onToggleCatego
   onAddSource: (name: string) => void
   onToggleSource: (id: string) => void
   onSignOut: () => void
-  onRestoreLegacy?: () => void
 }) {
   const [categoryName, setCategoryName] = useState('')
   const [categoryUnitType, setCategoryUnitType] = useState<UnitType>('unknown')
@@ -2071,7 +2141,6 @@ function SettingsPage({ user, categories, sources, onAddCategory, onToggleCatego
     <div className="account-panel">
       <AccountIdentity user={user} />
       <div className="account-cloud"><Cloud size={14} /><span>このアカウントにクラウド保存中</span></div>
-      {onRestoreLegacy && <button className="legacy-restore" onClick={onRestoreLegacy}><Download size={15} /> この端末の既存データを復元</button>}
       <button className="account-signout" onClick={onSignOut}><LogOut size={15} /> ログアウト</button>
     </div>
 

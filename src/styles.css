@@ -203,6 +203,28 @@ button:disabled { cursor: not-allowed; }
 .sync-banner button { min-height: 31px; padding: 6px 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e5bbb4; border-radius: 8px; background: white; font-size: 8px; font-weight: 800; }
 .sync-banner.conflict { color: #83591f; border-color: #ead6b6; background: #fff9ef; }
 
+.legacy-home-import {
+  width: calc(100% - 28px);
+  margin: 8px 14px 0;
+  padding: 12px 13px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  color: #425c50;
+  text-align: left;
+  border: 1px solid #cfe0d6;
+  border-radius: 15px;
+  background: #f2faf6;
+  box-shadow: 0 7px 18px #243b3010;
+}
+.legacy-home-import > span:nth-child(2) { min-width: 0; }
+.legacy-home-import strong, .legacy-home-import small { display: block; }
+.legacy-home-import strong { font-size: 10px; }
+.legacy-home-import small { margin-top: 3px; color: #74847b; font-size: 8px; line-height: 1.4; }
+.legacy-home-import > svg { color: #71877b; }
+.legacy-home-icon { width: 36px; height: 36px; display: grid !important; place-items: center; color: white; border-radius: 10px; background: #667d70; }
+
 .hero {
   margin: 8px 14px 0;
   padding: 28px 22px 22px;
@@ -405,9 +427,8 @@ button:disabled { cursor: not-allowed; }
 .settings-icon { width: 38px; height: 38px; display: grid; place-items: center; color: #666b64; border: 1px solid var(--line); border-radius: 12px; background: white; }
 .account-panel { margin-top: 17px; padding: 15px; border: 1px solid var(--line); border-radius: 17px; background: white; box-shadow: 0 9px 24px #24291f08; }
 .account-cloud { margin: 12px 0; padding: 9px 10px; display: flex; align-items: center; gap: 6px; color: #557064; border-radius: 9px; background: #eef6f2; font-size: 8px; font-weight: 700; }
-.account-signout, .legacy-restore { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; font-size: 9px; font-weight: 800; }
+.account-signout { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; font-size: 9px; font-weight: 800; }
 .account-signout { color: #8a4940; border: 1px solid #efd5d1; background: #fff8f6; }
-.legacy-restore { margin-bottom: 8px; color: #52645a; border: 1px solid #d8e2db; background: #f5faf7; }
 .settings-panel { margin-top: 17px; overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: white; box-shadow: 0 9px 24px #24291f08; }
 .settings-heading { display: flex; align-items: center; gap: 10px; padding: 15px; cursor: pointer; list-style: none; user-select: none; }
 .settings-heading::-webkit-details-marker { display: none; }
