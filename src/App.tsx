@@ -1711,18 +1711,12 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
     const totalSale = trades
       .filter(trade => trade.type === 'sell')
       .reduce((sum, trade) => sum + trade.amount, 0)
-    const potentialValue = stats.reduce((sum, item) => sum + item.potentialValue, 0)
-    const remainingCost = stats.reduce((sum, item) => sum + (item.remainingCost || 0), 0)
     return {
       totalPurchase,
       totalSale,
       transactionBalance: totalSale - totalPurchase,
-      potentialValue,
-      remainingCost,
     }
-  }, [stats, trades])
-  const inStock = stats.filter(item => item.stock > 0)
-  const pricedStock = inStock.filter(item => item.product.expectedPrice > 0)
+  }, [trades])
   const newestProductStats = stats.slice().reverse().sort((a, b) => {
     const aTime = a.product.createdAt ? Date.parse(a.product.createdAt) : Number.NaN
     const bTime = b.product.createdAt ? Date.parse(b.product.createdAt) : Number.NaN
@@ -1959,15 +1953,6 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
             <div><span>売却総額</span><strong>{yen(totals.totalSale)}</strong></div>
             <div><span>差額</span><strong>{signedYen(totals.transactionBalance)}</strong></div>
           </div>
-        </section>
-
-        <section className="section">
-          <div className="section-head"><div><p className="eyebrow">REFERENCE ONLY</p><h2>参考：潜在価値</h2></div><span className="count-label">取引収支には含みません</span></div>
-          <div className="value-grid">
-            <div><span>想定売却額</span><strong>{yen(totals.potentialValue)}</strong></div>
-            <div><span>残存在庫の原価</span><strong>{yen(totals.remainingCost)}</strong></div>
-          </div>
-          {inStock.length > pricedStock.length && <p className="info-note">想定売価が未入力の商品は潜在価値に含まれていません。</p>}
         </section>
 
         <section className="section">
