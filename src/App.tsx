@@ -1705,20 +1705,22 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
     return { cost, sale, profit: cost === null ? null : sale - cost, overridden: Boolean(override) }
   }
   const totals = useMemo(() => {
-    const soldItems = stats.filter(item => item.sellQty > 0).map(item => ({ item, values: realizedValues(item) }))
-    const confirmedSales = soldItems.filter(entry => entry.values.profit !== null)
-    const realizedProfit = confirmedSales.reduce((sum, entry) => sum + (entry.values.profit || 0), 0)
+    const totalPurchase = trades
+      .filter(trade => trade.type === 'buy')
+      .reduce((sum, trade) => sum + trade.amount, 0)
+    const totalSale = trades
+      .filter(trade => trade.type === 'sell')
+      .reduce((sum, trade) => sum + trade.amount, 0)
     const potentialValue = stats.reduce((sum, item) => sum + item.potentialValue, 0)
     const remainingCost = stats.reduce((sum, item) => sum + (item.remainingCost || 0), 0)
-    const potentialProfit = stats.filter(item => item.potentialProfit !== null).reduce((sum, item) => sum + (item.potentialProfit || 0), 0)
     return {
-      realizedProfit,
+      totalPurchase,
+      totalSale,
+      transactionBalance: totalSale - totalPurchase,
       potentialValue,
       remainingCost,
-      potentialProfit,
-      estimatedProfit: realizedProfit + potentialProfit,
     }
-  }, [stats, realizedOverrides])
+  }, [stats, trades])
   const inStock = stats.filter(item => item.stock > 0)
   const pricedStock = inStock.filter(item => item.product.expectedPrice > 0)
   const newestProductStats = stats.slice().reverse().sort((a, b) => {
@@ -1949,18 +1951,18 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
           <ChevronRight size={18} />
         </button>}
         <section className="hero">
-          <p className="eyebrow">TOTAL PERFORMANCE</p>
-          <span className="hero-label">推定総損益</span>
-          <h1 className={totals.estimatedProfit >= 0 ? 'positive' : 'negative'}>{signedYen(totals.estimatedProfit)}</h1>
+          <p className="eyebrow">TRANSACTION BALANCE</p>
+          <span className="hero-label">取引収支</span>
+          <h1 className={totals.transactionBalance >= 0 ? 'positive' : 'negative'}>{signedYen(totals.transactionBalance)}</h1>
           <div className="hero-stats">
-            <div><span>実現損益</span><strong>{signedYen(totals.realizedProfit)}</strong></div>
-            <div><span>潜在価値</span><strong>{yen(totals.potentialValue)}</strong></div>
-            <div><span>潜在損益</span><strong>{signedYen(totals.potentialProfit)}</strong></div>
+            <div><span>購入総額</span><strong>{yen(totals.totalPurchase)}</strong></div>
+            <div><span>売却総額</span><strong>{yen(totals.totalSale)}</strong></div>
+            <div><span>差額</span><strong>{signedYen(totals.transactionBalance)}</strong></div>
           </div>
         </section>
 
         <section className="section">
-          <div className="section-head"><div><p className="eyebrow">VALUATION</p><h2>潜在価値</h2></div><span className="count-label">{pricedStock.length} / {inStock.length}商品入力済み</span></div>
+          <div className="section-head"><div><p className="eyebrow">REFERENCE ONLY</p><h2>参考：潜在価値</h2></div><span className="count-label">取引収支には含みません</span></div>
           <div className="value-grid">
             <div><span>想定売却額</span><strong>{yen(totals.potentialValue)}</strong></div>
             <div><span>残存在庫の原価</span><strong>{yen(totals.remainingCost)}</strong></div>
@@ -2417,7 +2419,7 @@ function RealizedProfitModal({ item, override, onClose, onSave }: {
         <label className="field">売却額<input inputMode="numeric" value={sale} onChange={event => setSale(event.target.value.replace(/\D/g, ''))} placeholder={String(Math.round(automaticSale))} /></label>
       </div>
       <div className="profit-preview"><span>実現損益</span><strong className={previewProfit === null ? 'warning' : previewProfit >= 0 ? 'positive' : 'negative'}>{previewProfit === null ? '原価未確認' : signedYen(previewProfit)}</strong></div>
-      <p className="modal-note">ここで設定した金額は販売リストとホームの実現損益に反映されます。購入履歴・売却履歴・総購入費用・総売却額は変更されません。</p>
+      <p className="modal-note">ここで設定した金額は販売リストの実現損益だけに反映されます。購入履歴・売却履歴・ホームの取引収支は変更されません。</p>
       <button className="submit-button" type="submit">損益設定を保存</button>
       {override && <button className="secondary-button" type="button" onClick={() => onSave({})}>自動計算に戻す</button>}
     </form>
