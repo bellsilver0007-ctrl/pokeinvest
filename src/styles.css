@@ -480,6 +480,7 @@ button:disabled { cursor: not-allowed; }
 .field { display: block; margin: 12px 0 0; color: #62675f; font-size: 10px; font-weight: 700; }
 .field input, .field select { width: 100%; margin-top: 5px; padding: 12px; color: var(--ink); border: 1px solid #dcdfd8; border-radius: 11px; outline: 0; background: white; }
 .field input:focus, .field select:focus { border-color: #858c82; }
+.field > small { display: block; margin: 5px 2px 0; color: #888d85; font-size: 8px; font-weight: 500; line-height: 1.4; }
 .field-help { display: block; margin: 6px 2px 0; color: #8a8f87; font-size: 8px; font-weight: 500; line-height: 1.45; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .entry-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 11px; background: #e9ebe6; }

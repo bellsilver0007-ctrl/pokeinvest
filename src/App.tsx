@@ -44,6 +44,7 @@ type Product = {
   expectedPrice: number
   createdAt?: string
 }
+type EntryUnit = 'pack' | 'box'
 type RealizedOverride = { cost?: number; sale?: number }
 type RealizedDisplay = { cost: number | null; sale: number; profit: number | null; overridden: boolean }
 type ManualCollectionCard = {
@@ -57,7 +58,7 @@ type CollectionData = {
   manualCards: ManualCollectionCard[]
 }
 type PortfolioState = {
-  schemaVersion: 1
+  schemaVersion: 2
   trades: Trade[]
   categories: CategoryMaster[]
   products: Product[]
@@ -121,10 +122,35 @@ const legacyCollectionFallback: ManualCollectionCard[] = [
   { id: 'holding-h7', name: 'トウホク', quantity: 1, expectedPrice: 20000 },
   { id: 'holding-h8', name: 'ヒロシマ', quantity: 1, expectedPrice: 25000 },
 ]
-const legacyBoxPriceFallback: Record<string, number> = {
-  ニンジャスピナー: 11000,
-  メガドリーム: 15000,
-}
+const officialBoxPackRules = [
+  { aliases: ['ニンジャスピナー'], packs: 30 },
+  { aliases: ['ムニキスゼロ'], packs: 30 },
+  { aliases: ['メガドリーム', 'MEGAドリームex'], packs: 10 },
+  { aliases: ['テラスタルフェス', 'テラスタルフェスex'], packs: 10 },
+  { aliases: ['ブラックボルト・ホワイトフレア', 'ブラックボルト', 'ホワイトフレア'], packs: 20 },
+  { aliases: ['インフェルノ', 'インフェルノX'], packs: 30 },
+  { aliases: ['メガブレイブ'], packs: 30 },
+  { aliases: ['メガシンフォニア'], packs: 30 },
+  { aliases: ['アビスアイ'], packs: 30 },
+  { aliases: ['ストームエメラルド', 'ストームエメラルダ'], packs: 30 },
+  { aliases: ['熱風のアリーナ'], packs: 30 },
+  { aliases: ['ロケット団の栄光'], packs: 30 },
+] as const
+const legacyOriginalBoxPrices = [
+  { aliases: ['ニンジャスピナー'], price: 11000, packs: 30 },
+  { aliases: ['メガドリーム', 'MEGAドリームex'], price: 15000, packs: 10 },
+] as const
+const legacyMemoBoxPacks = new Map<string, number>([
+  ['memo-2', 30],
+  ['memo-7', 30], ['memo-8', 30], ['memo-9', 30],
+  ['memo-12', 30],
+  ['memo-16', 10], ['memo-17', 10], ['memo-18', 10], ['memo-20', 10],
+  ['memo-24', 10],
+  ['memo-26', 20], ['memo-27', 20],
+  ['memo-28', 30],
+  ['memo-30', 30],
+  ['memo-32', 30],
+])
 const legacyUnitTypes: UnitType[] = ['card', 'pack', 'box', 'deck', 'set', 'goods', 'unknown']
 const unitTypeOptions: UnitType[] = ['card', 'pack', 'deck', 'set', 'goods', 'unknown']
 const genericGroups = new Set([
@@ -147,6 +173,34 @@ const sourceLabels: Record<string, string> = {
 const yen = (value: number) => `¥${Math.abs(Math.round(value)).toLocaleString('ja-JP')}`
 const signedYen = (value: number) => `${value >= 0 ? '+' : '−'}${yen(value)}`
 const normalize = (value: string) => value.trim().toLocaleLowerCase('ja-JP')
+const compactProductName = (value: string) => normalize(value).replace(/[\s・･]/g, '')
+const isSpecialPackSet = (...values: Array<string | undefined>) => values.some(value =>
+  typeof value === 'string' && /スペシャル(?:カード)?セット/.test(compactProductName(value)),
+)
+const boxLookupName = (value: string) => compactProductName(value)
+  .replace(/(?:未開封)?(?:ボックス|box)$/i, '')
+  .replace(/(?:バラ)?パック$/i, '')
+const officialPacksPerBox = (...values: Array<string | undefined>) => {
+  if (isSpecialPackSet(...values)) return undefined
+  const names = values.filter((value): value is string => Boolean(value)).map(boxLookupName)
+  const rule = officialBoxPackRules.find(item =>
+    item.aliases.some(alias => names.some(name => name === boxLookupName(alias))),
+  )
+  return rule?.packs
+}
+const legacyPackPriceForProduct = (name: string) => {
+  const normalizedName = boxLookupName(name)
+  const price = legacyOriginalBoxPrices.find(item => item.aliases.some(alias => normalizedName === boxLookupName(alias)))
+  return price ? price.price / price.packs : 0
+}
+const normalizeLegacyExpectedPrice = (name: string, value: number) => {
+  const normalizedName = boxLookupName(name)
+  const legacy = legacyOriginalBoxPrices.find(item =>
+    item.price === value
+    && item.aliases.some(alias => normalizedName === boxLookupName(alias)),
+  )
+  return legacy ? legacy.price / legacy.packs : value
+}
 const canonicalUnitType = (unitType: UnitType | undefined): UnitType | undefined => unitType === 'box' ? 'pack' : unitType
 const isLegacyBoxCategory = (category: Pick<CategoryMaster, 'id' | 'name'>) => category.id === 'cat-box' || normalize(category.name) === normalize('ボックス')
 const isPackCategory = (category: Pick<CategoryMaster, 'id' | 'name'>) => category.id === 'cat-pack' || normalize(category.name) === normalize('パック')
@@ -219,6 +273,12 @@ const productCategoryFromTrade = (trade: Trade): ProductCategory => {
 const unitFromProduct = (product: Product): UnitType => canonicalUnitType(product.unitType || ({
   カード: 'card', パック: 'pack', ボックス: 'box', スタートデッキ: 'deck', セット: 'set', グッズ: 'goods', その他: 'unknown',
 })[product.category] as UnitType) || 'unknown'
+const productQuantityUnit = (product: Product) => {
+  const unitType = unitFromProduct(product)
+  if (unitType === 'pack') return 'パック'
+  if (unitType === 'card') return '枚'
+  return '個'
+}
 const legacyCategoryFromProduct = (product: Product) => {
   const unitType = unitFromProduct(product)
   if (unitType === 'card') return '싱글 카드'
@@ -250,10 +310,10 @@ function readTrades(): Trade[] {
       return {
         ...trade,
         name,
-        category: canonicalCategoryName(trade.category),
+        category: trade.category,
         group: jaText(trade.group || trade.name),
         note: jaText(trade.note || ''),
-        unitType: canonicalUnitType(trade.unitType || inferUnitType(name, trade.category)),
+        unitType: trade.unitType || inferUnitType(name, trade.category),
         sortOrder: trade.sortOrder ?? index + 1,
       }
     })
@@ -317,7 +377,7 @@ function createProductsFromTrades(trades: Trade[], categories: CategoryMaster[] 
       category,
       categoryId: master?.id,
       unitType: master?.unitType || getUnitType(trade),
-      expectedPrice: legacyBoxPriceFallback[name] || 0,
+      expectedPrice: legacyPackPriceForProduct(name),
     })
   })
   return products.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
@@ -329,13 +389,18 @@ function readProducts(trades: Trade[], categories: CategoryMaster[]): Product[] 
     const savedProducts: Product[] = saved ? JSON.parse(saved) : []
     const migratedProducts: Product[] = savedProducts.map(product => {
       const matchingSetTrade = product.category === 'その他' && trades.find(trade => getUnitType(trade) === 'set' && normalize(getProductName(trade)) === normalize(product.name))
-      const categoryName = matchingSetTrade ? 'セット' : canonicalCategoryName(product.category)
-      const master = matchingSetTrade ? categoryForName(categories, 'セット') : categories.find(category => category.id === product.categoryId) || categoryForName(categories, categoryName)
+      const legacyBox = product.categoryId === 'cat-box' || normalize(product.category) === normalize('ボックス') || product.unitType === 'box'
+      const categoryName = matchingSetTrade ? 'セット' : product.category
+      const master = matchingSetTrade
+        ? categoryForName(categories, 'セット')
+        : legacyBox
+          ? undefined
+          : categories.find(category => category.id === product.categoryId) || categoryForName(categories, categoryName)
       return {
         ...product,
         category: master?.name || categoryName,
-        categoryId: master?.id,
-        unitType: matchingSetTrade ? 'set' : canonicalUnitType(product.unitType || master?.unitType) || 'unknown',
+        categoryId: master?.id || product.categoryId,
+        unitType: matchingSetTrade ? 'set' : legacyBox ? 'box' : product.unitType || master?.unitType || 'unknown',
       }
     })
     const savedIds = new Set(migratedProducts.map(product => product.id))
@@ -379,6 +444,21 @@ function readRealizedOverrides(): Record<string, RealizedOverride> {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const isUnitType = (value: unknown): value is UnitType => legacyUnitTypes.includes(value as UnitType)
+const readBoxConversion = (value: unknown): Trade['boxConversion'] => {
+  if (
+    !isRecord(value)
+    || value.version !== 1
+    || typeof value.originalQuantity !== 'number'
+    || value.originalQuantity <= 0
+    || typeof value.packsPerBox !== 'number'
+    || value.packsPerBox <= 0
+  ) return undefined
+  return {
+    version: 1,
+    originalQuantity: value.originalQuantity,
+    packsPerBox: value.packsPerBox,
+  }
+}
 
 class LegacyImportError extends Error {
   constructor() {
@@ -442,7 +522,7 @@ function assertLegacyStorageReadable() {
 
 function emptyPortfolio(): PortfolioState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     trades: [],
     categories: defaultCategories.map(category => ({ ...category })),
     products: [],
@@ -517,26 +597,56 @@ function normalizePortfolio(value: unknown): PortfolioState {
 
   type MigratingProduct = Product & { migrationOrigin: 'pack' | 'box' | 'other'; originalIndex: number }
   const packCategory = categoryForName(safeCategories, 'パック')
+  const hasMappedBoxTrade = (productId: string, productName: string) => Array.isArray(value.trades) && value.trades.some(rawTrade => {
+    if (
+      !isRecord(rawTrade)
+      || rawTrade.packQuantityVersion === 1
+      || readBoxConversion(rawTrade.boxConversion)
+      || typeof rawTrade.id !== 'string'
+      || !legacyMemoBoxPacks.has(rawTrade.id)
+      || isSpecialPackSet(
+        typeof rawTrade.group === 'string' ? rawTrade.group : undefined,
+        typeof rawTrade.name === 'string' ? rawTrade.name : undefined,
+      )
+    ) return false
+    if (rawTrade.productId === productId) return true
+    if (typeof rawTrade.productId === 'string') return false
+    if (rawTrade.id !== 'memo-2') return false
+    const tradeNames = [
+      typeof rawTrade.group === 'string' ? rawTrade.group : '',
+      typeof rawTrade.name === 'string' ? rawTrade.name : '',
+    ].map(boxLookupName)
+    const targetName = boxLookupName(productName)
+    return tradeNames.includes(targetName)
+  })
   const productCandidates: MigratingProduct[] = Array.isArray(value.products)
     ? value.products.filter(isRecord).flatMap((item, index) => {
         if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.category !== 'string') return []
         const rawCategoryId = typeof item.categoryId === 'string' ? item.categoryId : undefined
         const rawUnitType = isUnitType(item.unitType) ? item.unitType : undefined
-        const legacyBox = rawCategoryId === 'cat-box' || normalize(item.category) === normalize('ボックス')
+        const canUseMappedBoxTrade = !['card', 'deck', 'set', 'goods'].includes(rawUnitType || 'unknown')
+          && !['カード', 'スタートデッキ', 'セット', 'グッズ'].includes(item.category)
+        const legacyBox = rawCategoryId === 'cat-box'
+          || normalize(item.category) === normalize('ボックス')
+          || rawUnitType === 'box'
+          || (canUseMappedBoxTrade && hasMappedBoxTrade(item.id, item.name))
         const explicitPack = rawCategoryId === 'cat-pack' || normalize(item.category) === normalize('パック')
         const currentCategory = rawCategoryId
           ? safeCategories.find(category => category.id === rawCategoryId)
           : categoryForName(safeCategories, item.category)
         const targetCategory = legacyBox || explicitPack ? packCategory : currentCategory
+        const migrationOrigin = legacyBox ? 'box' : explicitPack || rawUnitType === 'pack' ? 'pack' : 'other'
+        const rawExpectedPrice = typeof item.expectedPrice === 'number' && Number.isFinite(item.expectedPrice) ? Math.max(0, item.expectedPrice) : 0
+        const packsPerBox = migrationOrigin === 'box' ? officialPacksPerBox(item.name) : undefined
         return [{
           id: item.id,
           name: item.name,
           category: targetCategory?.name || canonicalCategoryName(item.category),
           categoryId: targetCategory?.id || (rawCategoryId === 'cat-box' ? 'cat-pack' : rawCategoryId),
           unitType: canonicalUnitType(rawUnitType || targetCategory?.unitType),
-          expectedPrice: typeof item.expectedPrice === 'number' && Number.isFinite(item.expectedPrice) ? Math.max(0, item.expectedPrice) : 0,
+          expectedPrice: packsPerBox ? rawExpectedPrice / packsPerBox : rawExpectedPrice,
           createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
-          migrationOrigin: legacyBox || rawUnitType === 'box' ? 'box' : explicitPack || rawUnitType === 'pack' ? 'pack' : 'other',
+          migrationOrigin,
           originalIndex: index,
         }]
       })
@@ -550,6 +660,25 @@ function normalizePortfolio(value: unknown): PortfolioState {
     if (group) group.candidates.push(product)
     else productGroups.set(key, { firstIndex: product.originalIndex, candidates: [product] })
   })
+  const hasUnconvertedBoxPriceEvidence = (productName: string) => Array.isArray(value.trades) && value.trades.some(item => {
+    if (
+      !isRecord(item)
+      || item.packQuantityVersion === 1
+      || readBoxConversion(item.boxConversion)
+      || typeof item.name !== 'string'
+    ) return false
+    const group = typeof item.group === 'string' ? item.group : ''
+    const relatedName = [group, item.name].some(name => {
+      const tradeName = compactProductName(name)
+      const targetName = compactProductName(productName)
+      return tradeName.includes(targetName) || targetName.includes(tradeName)
+    })
+    if (!relatedName) return false
+    return (typeof item.id === 'string' && legacyMemoBoxPacks.has(item.id))
+      || item.unitType === 'box'
+      || item.category === 'ボックス'
+      || /박스|ボックス|(?:^|\s)box(?:\s|$)/i.test(item.name)
+  })
   const productIdMap = new Map<string, string>()
   const products: Product[] = [...productGroups.values()]
     .sort((a, b) => a.firstIndex - b.firstIndex)
@@ -561,12 +690,16 @@ function normalizePortfolio(value: unknown): PortfolioState {
       const fallbackPrice = group.candidates.find(product => product.expectedPrice > 0)?.expectedPrice || 0
       const fallbackCreatedAt = group.candidates.find(product => product.createdAt)?.createdAt
       const { migrationOrigin: _migrationOrigin, originalIndex: _originalIndex, ...product } = survivor
+      const mergedExpectedPrice = product.expectedPrice || fallbackPrice
       return {
         ...product,
-        expectedPrice: product.expectedPrice || fallbackPrice,
+        expectedPrice: hasUnconvertedBoxPriceEvidence(product.name)
+          ? normalizeLegacyExpectedPrice(product.name, mergedExpectedPrice)
+          : mergedExpectedPrice,
         createdAt: product.createdAt || fallbackCreatedAt,
       }
     })
+  const productOriginById = new Map(productCandidates.map(product => [product.id, product.migrationOrigin] as const))
 
   const rawTrades: Trade[] = Array.isArray(value.trades)
     ? value.trades.filter(isRecord).flatMap((item, index) => {
@@ -580,7 +713,10 @@ function normalizePortfolio(value: unknown): PortfolioState {
         const quantity = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1
         const amount = typeof item.amount === 'number' && Number.isFinite(item.amount) ? Math.max(0, item.amount) : 0
         const points = typeof item.points === 'number' && Number.isFinite(item.points) ? Math.max(0, item.points) : 0
-        return [{
+        const rawUnitType = isUnitType(item.unitType) ? item.unitType : undefined
+        const existingConversion = readBoxConversion(item.boxConversion)
+        const packQuantityVersion = item.packQuantityVersion === 1 ? 1 : undefined
+        const trade: Trade = {
           id: item.id,
           productId: typeof item.productId === 'string' ? item.productId : undefined,
           name: item.name,
@@ -595,11 +731,49 @@ function normalizePortfolio(value: unknown): PortfolioState {
           source: typeof item.source === 'string' ? item.source : 'その他',
           sourceId: typeof item.sourceId === 'string' ? item.sourceId : undefined,
           note: typeof item.note === 'string' ? item.note : '',
-          unitType: canonicalUnitType(isUnitType(item.unitType) ? item.unitType : undefined),
+          unitType: canonicalUnitType(rawUnitType),
           fee: typeof item.fee === 'number' ? Math.max(0, item.fee) : 0,
           shipping: typeof item.shipping === 'number' ? Math.max(0, item.shipping) : 0,
           createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
           sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index + 1,
+          boxConversion: existingConversion,
+          packQuantityVersion: existingConversion ? 1 : packQuantityVersion,
+        }
+        if (existingConversion || packQuantityVersion === 1) return [trade]
+
+        const memoPacksPerBox = isSpecialPackSet(trade.group, trade.name) ? undefined : legacyMemoBoxPacks.get(trade.id)
+        const packsPerBox = memoPacksPerBox || officialPacksPerBox(trade.group, trade.name)
+        const productWasBox = trade.productId ? productOriginById.get(trade.productId) === 'box' : false
+        const boxNamedTrade = /박스|ボックス|(?:^|\s)box(?:\s|$)/i.test(trade.name)
+        const legacyMemoBox = (
+          Boolean(memoPacksPerBox)
+          || (
+            officialPacksPerBox(trade.group, trade.name) === 30
+            && [trade.group, trade.name].some(name => /ストームエメラルド|ストームエメラルダ/.test(name))
+            && trade.type === 'buy'
+            && trade.quantity === 2
+            && trade.amount === 12000
+          )
+        )
+        const shouldConvertBox = Boolean(
+          packsPerBox
+          && (rawUnitType === 'box' || item.category === 'ボックス' || productWasBox || boxNamedTrade || legacyMemoBox),
+        )
+        if (!shouldConvertBox || !packsPerBox) return [trade]
+
+        const convertedQuantity = quantity * packsPerBox
+        return [{
+          ...trade,
+          category: canonicalCategoryName(trade.category),
+          unitType: 'pack',
+          quantity: convertedQuantity,
+          unitPrice: Math.round((amount + points) / convertedQuantity),
+          boxConversion: {
+            version: 1,
+            originalQuantity: quantity,
+            packsPerBox,
+          },
+          packQuantityVersion: 1,
         }]
       })
     : []
@@ -674,7 +848,7 @@ function normalizePortfolio(value: unknown): PortfolioState {
   })
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     trades: linkedTrades,
     categories: safeCategories,
     products,
@@ -691,6 +865,19 @@ function normalizePortfolio(value: unknown): PortfolioState {
 
 function hasLegacyBoxPortfolioData(value: unknown) {
   if (!isRecord(value)) return false
+  const legacyBoxProductIds = new Set(
+    Array.isArray(value.products)
+      ? value.products.filter(item =>
+          isRecord(item)
+          && typeof item.id === 'string'
+          && (
+            item.categoryId === 'cat-box'
+            || item.category === 'ボックス'
+            || item.unitType === 'box'
+          ),
+        ).map(item => String((item as Record<string, unknown>).id))
+      : [],
+  )
   const hasLegacyCategory = Array.isArray(value.categories) && value.categories.some(item =>
     isRecord(item)
     && (
@@ -714,7 +901,31 @@ function hasLegacyBoxPortfolioData(value: unknown) {
       || item.unitType === 'box'
     ),
   )
-  return hasLegacyCategory || hasLegacyProduct || hasLegacyTrade
+  const hasKnownUnconvertedBoxTrade = Array.isArray(value.trades) && value.trades.some(item => {
+    if (!isRecord(item) || item.packQuantityVersion === 1 || readBoxConversion(item.boxConversion)) return false
+    const name = typeof item.name === 'string' ? item.name : ''
+    const group = typeof item.group === 'string' ? item.group : ''
+    const memoPacksPerBox = isSpecialPackSet(group, name) || typeof item.id !== 'string'
+      ? undefined
+      : legacyMemoBoxPacks.get(item.id)
+    const packsPerBox = memoPacksPerBox || officialPacksPerBox(group, name)
+    if (!packsPerBox) return false
+    const legacyMemoBox = (
+      Boolean(memoPacksPerBox)
+      || (
+        [group, name].some(valueName => /ストームエメラルド|ストームエメラルダ/.test(valueName))
+        && item.type === 'buy'
+        && item.quantity === 2
+        && item.amount === 12000
+      )
+    )
+    return item.unitType === 'box'
+      || item.category === 'ボックス'
+      || (typeof item.productId === 'string' && legacyBoxProductIds.has(item.productId))
+      || /박스|ボックス|(?:^|\s)box(?:\s|$)/i.test(name)
+      || legacyMemoBox
+  })
+  return hasLegacyCategory || hasLegacyProduct || hasLegacyTrade || hasKnownUnconvertedBoxTrade
 }
 
 type PortfolioDraft = {
@@ -1066,7 +1277,7 @@ function PortfolioSession({ session }: { session: Session }) {
           setSaveStatus('saved')
         }
       } else {
-        if (snapshot.schemaVersion > 1) {
+        if (snapshot.schemaVersion > 2) {
           throw new PortfolioRepositoryError('unsupported_portfolio_schema', 'UNSUPPORTED_SCHEMA')
         }
         revisionRef.current = snapshot.revision
@@ -1458,7 +1669,7 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
       && previous.realizedOverrides === realizedOverrides
     ) return
     const next: PortfolioState = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       trades,
       categories,
       products,
@@ -1672,12 +1883,13 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
   }
   const exportCsv = (type?: 'buy' | 'sell') => {
     const target = type ? trades.filter(trade => trade.type === type) : trades
-    const header = ['区分', '商品名', 'カテゴリー', '数量', '現金合計', 'ポイント', '購入・販売先', '日付', 'メモ']
+    const header = ['区分', '商品名', 'カテゴリー', '換算後数量', '単位', '元のBOX数', '1BOXパック数', '現金合計', 'ポイント', '購入・販売先', '日付', 'メモ']
     const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
     const rows = target.map(trade => {
       const product = products.find(item => item.id === trade.productId) || products.find(item => belongsToProduct(trade, item))
       return [
         trade.type === 'buy' ? '購入' : '売却', trade.name, product ? categoryNameForProduct(product) : productCategoryFromTrade(trade), trade.quantity,
+        product ? productQuantityUnit(product) : '個', trade.boxConversion?.originalQuantity || '', trade.boxConversion?.packsPerBox || '',
         trade.amount, trade.points, displaySource(trade, sources), trade.date, trade.note || '',
       ].map(escape).join(',')
     })
@@ -1875,7 +2087,7 @@ function ProductMasterRows({ stats, categoryNameForProduct, onEdit, emptyText }:
   return <>
     {stats.map(item => <article className="master-row" key={item.product.id}>
       <button className="master-info" onClick={() => onEdit(item.product)}>
-        <strong>{item.product.name}</strong><small>{categoryNameForProduct(item.product)} · 在庫 {item.stock.toLocaleString()}個</small>
+        <strong>{item.product.name}</strong><small>{categoryNameForProduct(item.product)} · 在庫 {item.stock.toLocaleString()}{productQuantityUnit(item.product)}</small>
       </button>
       <button className="row-edit" aria-label={`${item.product.name}の商品情報を編集`} onClick={() => onEdit(item.product)}><Pencil size={14} /></button>
     </article>)}
@@ -2080,10 +2292,18 @@ function TradeHistory({ id, product, type, histories, sources, canAddTransaction
   const isBuy = type === 'buy'
   return <div className="trade-history" id={id}>
     <div className="history-add-row"><span>{isBuy ? '購入履歴' : '売却履歴'} · {histories.length}件</span><button disabled={!canAddTransaction} onClick={() => onAdd(product, type)}><Plus size={13} /> {isBuy ? '購入履歴を追加' : '売却履歴を追加'}</button></div>
-    {histories.map(trade => <div className="trade-history-item" key={trade.id}>
-      <button className="history-edit" onClick={() => onEdit(product, type, trade)}><span><strong>{trade.date || '日付未入力'}</strong><small>{displaySource(trade, sources)} · {trade.quantity}個 · 単価 {yen((trade.amount + (isBuy ? trade.points : 0)) / trade.quantity)}{trade.points ? ` · ${trade.points.toLocaleString()}p使用` : ''}</small></span><b>{yen(trade.amount)}</b><Pencil size={13} /></button>
-      <button className="history-delete" aria-label={`${trade.date || '日付未入力'}の履歴を削除`} onClick={() => onDelete(product, trade)}><Trash2 size={13} /></button>
-    </div>)}
+    {histories.map(trade => {
+      const conversion = trade.boxConversion
+      const quantityLabel = conversion
+        ? `${trade.quantity.toLocaleString()}パック（${conversion.originalQuantity.toLocaleString()}BOX）`
+        : `${trade.quantity.toLocaleString()}${productQuantityUnit(product)}`
+      const unitQuantity = conversion?.originalQuantity || trade.quantity
+      const unitLabel = conversion ? 'BOX単価' : '単価'
+      return <div className="trade-history-item" key={trade.id}>
+        <button className="history-edit" onClick={() => onEdit(product, type, trade)}><span><strong>{trade.date || '日付未入力'}</strong><small>{displaySource(trade, sources)} · {quantityLabel} · {unitLabel} {yen((trade.amount + (isBuy ? trade.points : 0)) / unitQuantity)}{trade.points ? ` · ${trade.points.toLocaleString()}p使用` : ''}</small></span><b>{yen(trade.amount)}</b><Pencil size={13} /></button>
+        <button className="history-delete" aria-label={`${trade.date || '日付未入力'}の履歴を削除`} onClick={() => onDelete(product, trade)}><Trash2 size={13} /></button>
+      </div>
+    })}
   </div>
 }
 
@@ -2103,14 +2323,28 @@ function TradeEntryModal({ type, products, stats, categories, sources, onClose, 
   const [date, setDate] = useState(localDateString)
   const [sourceId, setSourceId] = useState('')
   const [note, setNote] = useState('')
+  const [entryUnit, setEntryUnit] = useState<EntryUnit>('pack')
   const [allowUnconfirmedSale, setAllowUnconfirmedSale] = useState(false)
   const selectedProduct = products.find(product => product.id === productId)
   const selectedStats = stats.find(item => item.product.id === productId)
+  const selectedCategory = categories.find(category => category.id === categoryId)
+  const packProduct = mode === 'existing'
+    ? Boolean(selectedProduct && unitFromProduct(selectedProduct) === 'pack')
+    : canonicalUnitType(selectedCategory?.unitType) === 'pack'
+  const packsPerBox = packProduct ? officialPacksPerBox(mode === 'existing' ? selectedProduct?.name : name) : undefined
+  const usingBox = entryUnit === 'box' && Boolean(packsPerBox)
+  const requestedQuantity = (Number(quantity) || 0) * (usingBox ? packsPerBox || 1 : 1)
+  const changeEntryUnit = (nextUnit: EntryUnit) => {
+    setEntryUnit(nextUnit)
+    setQuantity('1')
+    setAllowUnconfirmedSale(false)
+  }
   const matchingProducts = products.filter(product => `${product.name} ${product.category}`.toLocaleLowerCase('ja-JP').includes(productQuery.toLocaleLowerCase('ja-JP'))).slice(0, 50)
-  const needsUnconfirmedSale = !isBuy && (mode === 'new' || Boolean(selectedStats && Number(quantity) > selectedStats.stock))
+  const needsUnconfirmedSale = !isBuy && (mode === 'new' || Boolean(selectedStats && requestedQuantity > selectedStats.stock))
   return <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}><form className="modal" onSubmit={event => {
     event.preventDefault()
-    const qty = Number(quantity) || 0
+    const enteredQuantity = Number(quantity) || 0
+    const qty = enteredQuantity * (usingBox ? packsPerBox || 1 : 1)
     const cash = Number(amount) || 0
     const usedPoints = isBuy ? Number(points) || 0 : 0
     if (qty <= 0) { alert('数量を入力してください。'); return }
@@ -2135,16 +2369,19 @@ function TradeEntryModal({ type, products, stats, categories, sources, onClose, 
       category: legacyCategoryFromProduct(product), unitType: unitFromProduct(product), quantity: qty, amount: cash,
       points: usedPoints, unitPrice: Math.round((cash + usedPoints) / qty), date, source: source.name, sourceId: source.id,
       note: note.trim(), fee: 0, shipping: 0, createdAt: new Date().toISOString(), sortOrder: Date.now(),
+      boxConversion: usingBox && packsPerBox ? { version: 1, originalQuantity: enteredQuantity, packsPerBox } : undefined,
+      packQuantityVersion: packProduct ? 1 : undefined,
     }, isNewProduct)
   }}>
     <div className="modal-head"><div><p className="eyebrow">{isBuy ? 'PURCHASE' : 'SALES'} RECORD</p><h2>{isBuy ? '購入履歴を登録' : '売却履歴を登録'}</h2></div><button type="button" onClick={onClose}><X /></button></div>
-    <div className="entry-mode"><button type="button" className={mode === 'existing' ? 'active' : ''} onClick={() => setMode('existing')}>既存商品</button><button type="button" className={mode === 'new' ? 'active' : ''} onClick={() => setMode('new')}>新規商品</button></div>
+    <div className="entry-mode"><button type="button" className={mode === 'existing' ? 'active' : ''} onClick={() => { setMode('existing'); setEntryUnit('pack') }}>既存商品</button><button type="button" className={mode === 'new' ? 'active' : ''} onClick={() => { setMode('new'); setEntryUnit('pack') }}>新規商品</button></div>
     {mode === 'existing' ? <div className="existing-product-picker">
       <label className="field">商品検索<div className="entry-search"><Search size={15} /><input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="商品名・カテゴリーで検索" /></div></label>
-      <div className="entry-product-list">{matchingProducts.map(product => <button type="button" className={productId === product.id ? 'active' : ''} key={product.id} onClick={() => setProductId(product.id)}><span><strong>{product.name}</strong><small>{product.category}</small></span>{productId === product.id && <span className="selected-mark">選択中</span>}</button>)}{!matchingProducts.length && <div className="empty">商品が見つかりません。</div>}</div>
-      {!isBuy && selectedStats && <small className={`field-help ${Number(quantity) > selectedStats.stock ? 'warning' : ''}`}>現在庫 {selectedStats.stock}個。{Number(quantity) > selectedStats.stock ? '在庫を超える分は原価未確認として記録されます。' : '購入履歴がない販売は原価未確認として記録されます。'}</small>}
-    </div> : <div className="new-product-fields"><label className="field">商品名<input required value={name} onChange={event => setName(event.target.value)} placeholder="例：イーブイex SAR" /></label><label className="field">商品カテゴリー<select required value={categoryId} onChange={event => setCategoryId(event.target.value)}><option value="">選択してください</option>{categories.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>{!isBuy && <small className="field-help warning">購入履歴がないため、購入原価未確認の売却として記録されます。</small>}</div>}
-    <div className="form-grid"><label className="field">数量<input required inputMode="numeric" value={quantity} onChange={event => setQuantity(event.target.value.replace(/\D/g, ''))} /></label><label className="field">総額（¥）<input inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label></div>
+      <div className="entry-product-list">{matchingProducts.map(product => <button type="button" className={productId === product.id ? 'active' : ''} key={product.id} onClick={() => { setProductId(product.id); setEntryUnit('pack') }}><span><strong>{product.name}</strong><small>{product.category}</small></span>{productId === product.id && <span className="selected-mark">選択中</span>}</button>)}{!matchingProducts.length && <div className="empty">商品が見つかりません。</div>}</div>
+      {!isBuy && selectedStats && <small className={`field-help ${requestedQuantity > selectedStats.stock ? 'warning' : ''}`}>現在庫 {selectedStats.stock.toLocaleString()}{productQuantityUnit(selectedStats.product)}。{requestedQuantity > selectedStats.stock ? '在庫を超える分は原価未確認として記録されます。' : '購入履歴がない販売は原価未確認として記録されます。'}</small>}
+    </div> : <div className="new-product-fields"><label className="field">商品名<input required value={name} onChange={event => setName(event.target.value)} placeholder="例：イーブイex SAR" /></label><label className="field">商品カテゴリー<select required value={categoryId} onChange={event => { setCategoryId(event.target.value); setEntryUnit('pack') }}><option value="">選択してください</option>{categories.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>{!isBuy && <small className="field-help warning">購入履歴がないため、購入原価未確認の売却として記録されます。</small>}</div>}
+    {packsPerBox && <label className="field">登録単位<select value={entryUnit} onChange={event => changeEntryUnit(event.target.value as EntryUnit)}><option value="pack">パック</option><option value="box">BOX（1BOX＝{packsPerBox}パック）</option></select></label>}
+    <div className="form-grid"><label className="field">{usingBox ? 'BOX数' : packProduct ? 'パック数' : '数量'}<input required inputMode="numeric" value={quantity} onChange={event => setQuantity(event.target.value.replace(/\D/g, ''))} />{usingBox && <small>{requestedQuantity.toLocaleString()}パックとして在庫計算</small>}</label><label className="field">総額（¥）<input inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label></div>
     {needsUnconfirmedSale && <label className="unconfirmed-check"><input type="checkbox" checked={allowUnconfirmedSale} onChange={event => setAllowUnconfirmedSale(event.target.checked)} /><span><strong>在庫外売却として記録</strong><small>購入原価は未確認となり、取引履歴の販売リストから確認・編集できます。</small></span></label>}
     {isBuy && <label className="field">使用ポイント<input inputMode="numeric" value={points} onChange={event => setPoints(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label>}
     <label className="field">日付<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
@@ -2174,7 +2411,7 @@ function RealizedProfitModal({ item, override, onClose, onSave }: {
       onSave({ cost: cost === '' ? undefined : Number(cost), sale: sale === '' ? undefined : Number(sale) })
     }}>
       <div className="modal-head"><div><p className="eyebrow">REALIZED PROFIT</p><h2>売却損益を編集</h2></div><button type="button" onClick={onClose}><X /></button></div>
-      <div className="selected-product"><span>{item.product.category} · {item.sellQty}個売却</span><strong>{item.product.name}</strong></div>
+      <div className="selected-product"><span>{item.product.category} · {item.sellQty}{productQuantityUnit(item.product)}売却</span><strong>{item.product.name}</strong></div>
       <div className="form-grid">
         <label className="field">購入原価（売却分）<input inputMode="numeric" value={cost} onChange={event => setCost(event.target.value.replace(/\D/g, ''))} placeholder={automaticCost === null ? '未確認' : String(Math.round(automaticCost))} /></label>
         <label className="field">売却額<input inputMode="numeric" value={sale} onChange={event => setSale(event.target.value.replace(/\D/g, ''))} placeholder={String(Math.round(automaticSale))} /></label>
@@ -2208,7 +2445,7 @@ function CollectionPage({ stats, manualCards, onEditPrice, onAdd, onEditManual, 
         <div className="card-content">
           <div className="card-tags"><span className="category-tag">カード</span>{item.sellQty > 0 && <span className={soldOut ? 'sold-tag sold-out' : 'sold-tag'}>{soldOut ? '売却完了' : `${item.sellQty}枚売却`}</span>}<button className="collection-remove" aria-label={`${item.product.name}をコレクションから外す`} onClick={() => onHideProduct(item.product)}><Trash2 size={12} /></button></div>
           <h3>{item.product.name}</h3><p>保有 {item.stock.toLocaleString()}枚 · 購入 {item.buyQty.toLocaleString()}枚</p>
-          <label className="collection-price"><span>想定売価</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice || ''} placeholder="0" onChange={event => onEditPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
+          <label className="collection-price"><span>想定売価（1{productQuantityUnit(item.product)}）</span><b>¥</b><input aria-label={`${item.product.name}の想定売価`} inputMode="numeric" value={item.product.expectedPrice ? Math.round(item.product.expectedPrice) : ''} placeholder="0" onChange={event => onEditPrice(item.product.id, Number(event.target.value.replace(/\D/g, '')) || 0)} /></label>
         </div>
       </article>
     })}{manualCards.map(card => <article className="collection-card" key={card.id}>
@@ -2355,7 +2592,10 @@ function TradeModal({ product, stats, type, trade, sources, onClose, onSave, onD
   onDelete: (trade: Trade) => void
 }) {
   const isBuy = type === 'buy'
-  const [quantity, setQuantity] = useState(String(trade?.quantity || 1))
+  const productPacksPerBox = officialPacksPerBox(product.name)
+  const initialBoxConversion = trade?.boxConversion
+  const [entryUnit, setEntryUnit] = useState<EntryUnit>(initialBoxConversion ? 'box' : 'pack')
+  const [quantity, setQuantity] = useState(String(initialBoxConversion?.originalQuantity || trade?.quantity || 1))
   const [amount, setAmount] = useState(String(trade?.amount || ''))
   const [points, setPoints] = useState(String(trade?.points || ''))
   const [date, setDate] = useState(trade?.date || localDateString())
@@ -2363,14 +2603,40 @@ function TradeModal({ product, stats, type, trade, sources, onClose, onSave, onD
   const availableSources = sources.filter(source => source.active || source.id === currentSource?.id)
   const [sourceId, setSourceId] = useState(currentSource?.id || '')
   const [note, setNote] = useState(trade?.note || '')
+  const packsPerBox = initialBoxConversion?.packsPerBox || productPacksPerBox
+  const usingBox = entryUnit === 'box' && Boolean(packsPerBox)
+  const convertedQuantity = (Number(quantity) || 0) * (usingBox ? packsPerBox || 1 : 1)
   const editableStock = stats.stock + (trade?.type === 'sell' ? trade.quantity : 0)
   const hasUnconfirmedCost = stats.buyQty < stats.sellQty
   const [allowUnconfirmedSale, setAllowUnconfirmedSale] = useState(false)
-  const needsUnconfirmedSale = !isBuy && Number(quantity) > editableStock
+  const needsUnconfirmedSale = !isBuy && convertedQuantity > editableStock
+  const changeEntryUnit = (nextUnit: EntryUnit) => {
+    if (nextUnit === entryUnit) return
+    if (!trade) {
+      setEntryUnit(nextUnit)
+      setQuantity('1')
+      setAllowUnconfirmedSale(false)
+      return
+    }
+    if (nextUnit === 'pack') {
+      setQuantity(String(convertedQuantity))
+      setEntryUnit('pack')
+      setAllowUnconfirmedSale(false)
+      return
+    }
+    if (!packsPerBox || convertedQuantity % packsPerBox !== 0) {
+      alert(`現在の${convertedQuantity.toLocaleString()}パックは、${packsPerBox || 0}パック入りBOXの整数個に換算できません。`)
+      return
+    }
+    setQuantity(String(convertedQuantity / packsPerBox))
+    setEntryUnit('box')
+    setAllowUnconfirmedSale(false)
+  }
   return <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <form className="modal" onSubmit={event => {
       event.preventDefault()
-      const qty = Number(quantity) || 0
+      const enteredQuantity = Number(quantity) || 0
+      const qty = enteredQuantity * (usingBox ? packsPerBox || 1 : 1)
       const cash = Number(amount) || 0
       const usedPoints = isBuy ? Number(points) || 0 : 0
       if (qty <= 0) { alert('数量を入力してください。'); return }
@@ -2403,11 +2669,14 @@ function TradeModal({ product, stats, type, trade, sources, onClose, onSave, onD
         shipping: trade?.shipping || 0,
         createdAt: trade?.createdAt || new Date().toISOString(),
         sortOrder: trade?.sortOrder || Date.now(),
+        boxConversion: usingBox && packsPerBox ? { version: 1, originalQuantity: enteredQuantity, packsPerBox } : undefined,
+        packQuantityVersion: unitFromProduct(product) === 'pack' ? 1 : trade?.packQuantityVersion,
       })
     }}>
       <div className="modal-head"><div><p className="eyebrow">{isBuy ? 'PURCHASE' : 'SALES'} RECORD</p><h2>{trade ? `${isBuy ? '購入' : '売却'}履歴を編集` : `${isBuy ? '購入' : '売却'}を追加`}</h2></div><button type="button" onClick={onClose}><X /></button></div>
-      <div className="selected-product"><span>{product.category}</span><strong>{product.name}</strong>{!isBuy && <small>{hasUnconfirmedCost ? '購入原価未確認の売却履歴' : `販売可能在庫 ${editableStock.toLocaleString()}個`}</small>}</div>
-      <div className="form-grid"><label className="field">数量<input inputMode="numeric" value={quantity} onChange={event => setQuantity(event.target.value.replace(/\D/g, ''))} /></label><label className="field">総額（¥）<input inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label></div>
+      <div className="selected-product"><span>{product.category}</span><strong>{product.name}</strong>{!isBuy && <small>{hasUnconfirmedCost ? '購入原価未確認の売却履歴' : `販売可能在庫 ${editableStock.toLocaleString()}${productQuantityUnit(product)}`}</small>}</div>
+      {packsPerBox && unitFromProduct(product) === 'pack' && <label className="field">登録単位<select value={entryUnit} onChange={event => changeEntryUnit(event.target.value as EntryUnit)}><option value="pack">パック</option><option value="box">BOX（1BOX＝{packsPerBox}パック）</option></select></label>}
+      <div className="form-grid"><label className="field">{usingBox ? 'BOX数' : unitFromProduct(product) === 'pack' ? 'パック数' : '数量'}<input inputMode="numeric" value={quantity} onChange={event => setQuantity(event.target.value.replace(/\D/g, ''))} />{usingBox && <small>{convertedQuantity.toLocaleString()}パックとして在庫計算</small>}</label><label className="field">総額（¥）<input inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label></div>
       {needsUnconfirmedSale && <label className="unconfirmed-check"><input type="checkbox" checked={allowUnconfirmedSale} onChange={event => setAllowUnconfirmedSale(event.target.checked)} /><span><strong>在庫外売却として記録</strong><small>在庫を超える分の購入原価は未確認となります。</small></span></label>}
       {isBuy && <label className="field">使用ポイント<input inputMode="numeric" value={points} onChange={event => setPoints(event.target.value.replace(/\D/g, ''))} placeholder="0" /></label>}
       <label className="field">日付<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>

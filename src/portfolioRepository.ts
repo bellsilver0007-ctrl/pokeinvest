@@ -49,7 +49,7 @@ export async function savePortfolioSnapshot<T>(
     .rpc('save_portfolio_snapshot', {
       p_user_id: userId,
       p_state: state,
-      p_schema_version: 1,
+      p_schema_version: 2,
       p_expected_revision: expectedRevision,
     })
     .single()
