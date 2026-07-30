@@ -23,8 +23,8 @@ export type Trade = {
 }
 
 export const unitLabels: Record<UnitType, string> = {
-  box: 'ボックス',
-  pack: 'バラパック',
+  box: 'パック',
+  pack: 'パック',
   card: 'カード',
   deck: 'スタートデッキ',
   set: 'セット',
@@ -35,7 +35,7 @@ export const unitLabels: Record<UnitType, string> = {
 export const inferUnitType = (name: string, category: string): UnitType => {
   const value = name.toLowerCase()
   if (/낱팩|(?:^|\s)팩|パック/.test(value)) return 'pack'
-  if (/박스|ボックス|box|宝石包|宝石宝/.test(value)) return 'box'
+  if (/박스|ボックス|box|宝石包|宝石宝/.test(value)) return 'pack'
   if (/덱|デッキ|スタデ|スターター/.test(value)) return 'deck'
   if (/세트|セット|아카데미/.test(value)) return 'set'
   if (category === '싱글 카드') return 'card'

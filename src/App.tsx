@@ -105,11 +105,10 @@ const legacyStorageKeys = [
 const defaultCategories: CategoryMaster[] = [
   { id: 'cat-card', name: 'カード', unitType: 'card', active: true, sortOrder: 1 },
   { id: 'cat-pack', name: 'パック', unitType: 'pack', active: true, sortOrder: 2 },
-  { id: 'cat-box', name: 'ボックス', unitType: 'box', active: true, sortOrder: 3 },
-  { id: 'cat-deck', name: 'スタートデッキ', unitType: 'deck', active: true, sortOrder: 4 },
-  { id: 'cat-set', name: 'セット', unitType: 'set', active: true, sortOrder: 5 },
-  { id: 'cat-goods', name: 'グッズ', unitType: 'goods', active: true, sortOrder: 6 },
-  { id: 'cat-other', name: 'その他', unitType: 'unknown', active: true, sortOrder: 7 },
+  { id: 'cat-deck', name: 'スタートデッキ', unitType: 'deck', active: true, sortOrder: 3 },
+  { id: 'cat-set', name: 'セット', unitType: 'set', active: true, sortOrder: 4 },
+  { id: 'cat-goods', name: 'グッズ', unitType: 'goods', active: true, sortOrder: 5 },
+  { id: 'cat-other', name: 'その他', unitType: 'unknown', active: true, sortOrder: 6 },
 ]
 const defaultSources: SourceMaster[] = [
   { id: 'source-other', name: 'その他', active: true, sortOrder: 1, aliases: ['기타'] },
@@ -126,7 +125,8 @@ const legacyBoxPriceFallback: Record<string, number> = {
   ニンジャスピナー: 11000,
   メガドリーム: 15000,
 }
-const unitTypeOptions: UnitType[] = ['card', 'pack', 'box', 'deck', 'set', 'goods', 'unknown']
+const legacyUnitTypes: UnitType[] = ['card', 'pack', 'box', 'deck', 'set', 'goods', 'unknown']
+const unitTypeOptions: UnitType[] = ['card', 'pack', 'deck', 'set', 'goods', 'unknown']
 const genericGroups = new Set([
   'メルカリ', 'Yahoo!フリマ', 'カードショップ', '闲鱼', 'シングル売却', '韓国グッズ',
   '中国グッズ', 'グッズ売却', 'ポケモン以外', 'その他パック・ボックス',
@@ -147,6 +147,30 @@ const sourceLabels: Record<string, string> = {
 const yen = (value: number) => `¥${Math.abs(Math.round(value)).toLocaleString('ja-JP')}`
 const signedYen = (value: number) => `${value >= 0 ? '+' : '−'}${yen(value)}`
 const normalize = (value: string) => value.trim().toLocaleLowerCase('ja-JP')
+const canonicalUnitType = (unitType: UnitType | undefined): UnitType | undefined => unitType === 'box' ? 'pack' : unitType
+const isLegacyBoxCategory = (category: Pick<CategoryMaster, 'id' | 'name'>) => category.id === 'cat-box' || normalize(category.name) === normalize('ボックス')
+const isPackCategory = (category: Pick<CategoryMaster, 'id' | 'name'>) => category.id === 'cat-pack' || normalize(category.name) === normalize('パック')
+const canonicalCategoryName = (name: string) => normalize(name) === normalize('ボックス') ? 'パック' : name
+const mergePackAndBoxCategories = (categories: CategoryMaster[]) => {
+  const packEntries = categories.filter(category => isPackCategory(category) || isLegacyBoxCategory(category))
+  const packFallback = defaultCategories.find(category => category.id === 'cat-pack')!
+  const packBase = packEntries.find(category => isPackCategory(category)) || packFallback
+  const mergedPack: CategoryMaster = {
+    ...packBase,
+    id: 'cat-pack',
+    name: 'パック',
+    unitType: 'pack',
+    active: packEntries.length ? packEntries.some(category => category.active) : packFallback.active,
+    sortOrder: Math.min(packBase.sortOrder, ...packEntries.map(category => category.sortOrder)),
+  }
+  const merged = categories
+    .filter(category => !isPackCategory(category) && !isLegacyBoxCategory(category))
+    .map(category => ({ ...category, unitType: canonicalUnitType(category.unitType) || 'unknown' }))
+  merged.push(mergedPack)
+  return merged
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((category, index) => ({ ...category, sortOrder: index + 1 }))
+}
 const localDateString = () => {
   const today = new Date()
   const month = String(today.getMonth() + 1).padStart(2, '0')
@@ -154,7 +178,11 @@ const localDateString = () => {
   return `${today.getFullYear()}-${month}-${day}`
 }
 const sourceLabel = (value: string) => sourceLabels[value] || value
-const categoryForName = (categories: CategoryMaster[], name: string) => categories.find(category => normalize(category.name) === normalize(name)) || defaultCategories.find(category => normalize(category.name) === normalize(name))
+const categoryForName = (categories: CategoryMaster[], name: string) => {
+  const canonicalName = canonicalCategoryName(name)
+  return categories.find(category => normalize(category.name) === normalize(canonicalName))
+    || defaultCategories.find(category => normalize(category.name) === normalize(canonicalName))
+}
 const sourceMatches = (source: SourceMaster, value: string) => [source.name, ...source.aliases].some(alias => normalize(alias) === normalize(sourceLabel(value)))
 const sourceForTrade = (trade: Trade, sources: SourceMaster[]) => {
   const idMatch = sources.find(source => source.id === trade.sourceId)
@@ -170,7 +198,7 @@ const stableSourceId = (name: string) => {
   }
   return `source-${(hash >>> 0).toString(36)}`
 }
-const getUnitType = (trade: Trade) => trade.unitType || inferUnitType(trade.name, trade.category)
+const getUnitType = (trade: Trade) => canonicalUnitType(trade.unitType || inferUnitType(trade.name, trade.category)) || 'unknown'
 const getProductName = (trade: Trade) => {
   const group = jaText(trade.group || '').trim()
   const unit = getUnitType(trade)
@@ -180,17 +208,17 @@ const getProductName = (trade: Trade) => {
 }
 const productCategoryFromTrade = (trade: Trade): ProductCategory => {
   const unit = getUnitType(trade)
+  const directCategory = canonicalCategoryName(trade.category)
   if (unit === 'card' || trade.category === '싱글 카드') return 'カード'
-  if (unit === 'pack') return 'パック'
-  if (unit === 'box') return 'ボックス'
+  if (unit === 'pack' || unit === 'box' || directCategory === 'パック') return 'パック'
   if (unit === 'deck') return 'スタートデッキ'
   if (unit === 'set') return 'セット'
   if (unit === 'goods' || trade.category === '굿즈・기타' || trade.category === '포켓몬 외') return 'グッズ'
   return 'その他'
 }
-const unitFromProduct = (product: Product): UnitType => product.unitType || ({
+const unitFromProduct = (product: Product): UnitType => canonicalUnitType(product.unitType || ({
   カード: 'card', パック: 'pack', ボックス: 'box', スタートデッキ: 'deck', セット: 'set', グッズ: 'goods', その他: 'unknown',
-})[product.category] as UnitType
+})[product.category] as UnitType) || 'unknown'
 const legacyCategoryFromProduct = (product: Product) => {
   const unitType = unitFromProduct(product)
   if (unitType === 'card') return '싱글 카드'
@@ -217,14 +245,18 @@ function readTrades(): Trade[] {
     if (!saved) return []
     const parsed: Trade[] = JSON.parse(saved)
     if (!Array.isArray(parsed)) return []
-    return parsed.map((trade, index) => ({
-      ...trade,
-      name: jaText(trade.name),
-      group: jaText(trade.group || trade.name),
-      note: jaText(trade.note || ''),
-      unitType: trade.unitType || inferUnitType(jaText(trade.name), trade.category),
-      sortOrder: trade.sortOrder ?? index + 1,
-    }))
+    return parsed.map((trade, index) => {
+      const name = jaText(trade.name)
+      return {
+        ...trade,
+        name,
+        category: canonicalCategoryName(trade.category),
+        group: jaText(trade.group || trade.name),
+        note: jaText(trade.note || ''),
+        unitType: canonicalUnitType(trade.unitType || inferUnitType(name, trade.category)),
+        sortOrder: trade.sortOrder ?? index + 1,
+      }
+    })
   } catch {
     return []
   }
@@ -233,16 +265,16 @@ function readTrades(): Trade[] {
 function readCategoryMasters(): CategoryMaster[] {
   try {
     const saved = localStorage.getItem(CATEGORY_STORAGE)
-    if (!saved) return defaultCategories
+    if (!saved) return defaultCategories.map(category => ({ ...category }))
     const parsed: CategoryMaster[] = JSON.parse(saved)
-    if (!Array.isArray(parsed) || !parsed.length) return defaultCategories
+    if (!Array.isArray(parsed) || !parsed.length) return defaultCategories.map(category => ({ ...category }))
     const merged = [...parsed]
     defaultCategories.forEach(defaultCategory => {
       if (!merged.some(category => category.id === defaultCategory.id || normalize(category.name) === normalize(defaultCategory.name))) merged.push(defaultCategory)
     })
-    return merged
+    return mergePackAndBoxCategories(merged)
   } catch {
-    return defaultCategories
+    return defaultCategories.map(category => ({ ...category }))
   }
 }
 
@@ -285,7 +317,7 @@ function createProductsFromTrades(trades: Trade[], categories: CategoryMaster[] 
       category,
       categoryId: master?.id,
       unitType: master?.unitType || getUnitType(trade),
-      expectedPrice: category === 'ボックス' ? legacyBoxPriceFallback[name] || 0 : 0,
+      expectedPrice: legacyBoxPriceFallback[name] || 0,
     })
   })
   return products.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
@@ -297,9 +329,14 @@ function readProducts(trades: Trade[], categories: CategoryMaster[]): Product[] 
     const savedProducts: Product[] = saved ? JSON.parse(saved) : []
     const migratedProducts: Product[] = savedProducts.map(product => {
       const matchingSetTrade = product.category === 'その他' && trades.find(trade => getUnitType(trade) === 'set' && normalize(getProductName(trade)) === normalize(product.name))
-      const categoryName = matchingSetTrade ? 'セット' : product.category
+      const categoryName = matchingSetTrade ? 'セット' : canonicalCategoryName(product.category)
       const master = matchingSetTrade ? categoryForName(categories, 'セット') : categories.find(category => category.id === product.categoryId) || categoryForName(categories, categoryName)
-      return { ...product, category: master?.name || categoryName, categoryId: master?.id, unitType: matchingSetTrade ? 'set' : product.unitType || master?.unitType || ('unknown' as UnitType) }
+      return {
+        ...product,
+        category: master?.name || categoryName,
+        categoryId: master?.id,
+        unitType: matchingSetTrade ? 'set' : canonicalUnitType(product.unitType || master?.unitType) || 'unknown',
+      }
     })
     const savedIds = new Set(migratedProducts.map(product => product.id))
     const unlinkedTrades = trades.filter(trade => !trade.productId || !savedIds.has(trade.productId))
@@ -341,7 +378,7 @@ function readRealizedOverrides(): Record<string, RealizedOverride> {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-const isUnitType = (value: unknown): value is UnitType => unitTypeOptions.includes(value as UnitType)
+const isUnitType = (value: unknown): value is UnitType => legacyUnitTypes.includes(value as UnitType)
 
 class LegacyImportError extends Error {
   constructor() {
@@ -462,7 +499,7 @@ function normalizePortfolio(value: unknown): PortfolioState {
         }]
       })
     : []
-  const safeCategories = categories.length ? categories : defaultCategories.map(category => ({ ...category }))
+  const safeCategories = mergePackAndBoxCategories(categories.length ? categories : defaultCategories.map(category => ({ ...category })))
 
   const sources: SourceMaster[] = Array.isArray(value.sources)
     ? value.sources.filter(isRecord).flatMap((item, index) => {
@@ -478,22 +515,60 @@ function normalizePortfolio(value: unknown): PortfolioState {
     : []
   const safeSources = sources.length ? sources : defaultSources.map(source => ({ ...source, aliases: [...source.aliases] }))
 
-  const products: Product[] = Array.isArray(value.products)
-    ? value.products.filter(isRecord).flatMap(item => {
+  type MigratingProduct = Product & { migrationOrigin: 'pack' | 'box' | 'other'; originalIndex: number }
+  const packCategory = categoryForName(safeCategories, 'パック')
+  const productCandidates: MigratingProduct[] = Array.isArray(value.products)
+    ? value.products.filter(isRecord).flatMap((item, index) => {
         if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.category !== 'string') return []
+        const rawCategoryId = typeof item.categoryId === 'string' ? item.categoryId : undefined
+        const rawUnitType = isUnitType(item.unitType) ? item.unitType : undefined
+        const legacyBox = rawCategoryId === 'cat-box' || normalize(item.category) === normalize('ボックス')
+        const explicitPack = rawCategoryId === 'cat-pack' || normalize(item.category) === normalize('パック')
+        const currentCategory = rawCategoryId
+          ? safeCategories.find(category => category.id === rawCategoryId)
+          : categoryForName(safeCategories, item.category)
+        const targetCategory = legacyBox || explicitPack ? packCategory : currentCategory
         return [{
           id: item.id,
           name: item.name,
-          category: item.category,
-          categoryId: typeof item.categoryId === 'string' ? item.categoryId : undefined,
-          unitType: isUnitType(item.unitType) ? item.unitType : undefined,
+          category: targetCategory?.name || canonicalCategoryName(item.category),
+          categoryId: targetCategory?.id || (rawCategoryId === 'cat-box' ? 'cat-pack' : rawCategoryId),
+          unitType: canonicalUnitType(rawUnitType || targetCategory?.unitType),
           expectedPrice: typeof item.expectedPrice === 'number' && Number.isFinite(item.expectedPrice) ? Math.max(0, item.expectedPrice) : 0,
           createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
+          migrationOrigin: legacyBox || rawUnitType === 'box' ? 'box' : explicitPack || rawUnitType === 'pack' ? 'pack' : 'other',
+          originalIndex: index,
         }]
       })
     : []
+  const productGroups = new Map<string, { firstIndex: number; candidates: MigratingProduct[] }>()
+  productCandidates.forEach(product => {
+    const key = product.categoryId === 'cat-pack' || normalize(product.category) === normalize('パック')
+      ? `cat-pack|${normalize(product.name)}`
+      : `product|${product.id}`
+    const group = productGroups.get(key)
+    if (group) group.candidates.push(product)
+    else productGroups.set(key, { firstIndex: product.originalIndex, candidates: [product] })
+  })
+  const productIdMap = new Map<string, string>()
+  const products: Product[] = [...productGroups.values()]
+    .sort((a, b) => a.firstIndex - b.firstIndex)
+    .map(group => {
+      const survivor = group.candidates.find(product => product.migrationOrigin === 'pack')
+        || group.candidates.find(product => product.migrationOrigin === 'other')
+        || group.candidates[0]
+      group.candidates.forEach(product => productIdMap.set(product.id, survivor.id))
+      const fallbackPrice = group.candidates.find(product => product.expectedPrice > 0)?.expectedPrice || 0
+      const fallbackCreatedAt = group.candidates.find(product => product.createdAt)?.createdAt
+      const { migrationOrigin: _migrationOrigin, originalIndex: _originalIndex, ...product } = survivor
+      return {
+        ...product,
+        expectedPrice: product.expectedPrice || fallbackPrice,
+        createdAt: product.createdAt || fallbackCreatedAt,
+      }
+    })
 
-  const trades: Trade[] = Array.isArray(value.trades)
+  const rawTrades: Trade[] = Array.isArray(value.trades)
     ? value.trades.filter(isRecord).flatMap((item, index) => {
         if (
           typeof item.id !== 'string'
@@ -509,7 +584,7 @@ function normalizePortfolio(value: unknown): PortfolioState {
           id: item.id,
           productId: typeof item.productId === 'string' ? item.productId : undefined,
           name: item.name,
-          category: item.category,
+          category: canonicalCategoryName(item.category),
           group: typeof item.group === 'string' ? item.group : item.name,
           type: item.type as 'buy' | 'sell',
           amount,
@@ -520,7 +595,7 @@ function normalizePortfolio(value: unknown): PortfolioState {
           source: typeof item.source === 'string' ? item.source : 'その他',
           sourceId: typeof item.sourceId === 'string' ? item.sourceId : undefined,
           note: typeof item.note === 'string' ? item.note : '',
-          unitType: isUnitType(item.unitType) ? item.unitType : undefined,
+          unitType: canonicalUnitType(isUnitType(item.unitType) ? item.unitType : undefined),
           fee: typeof item.fee === 'number' ? Math.max(0, item.fee) : 0,
           shipping: typeof item.shipping === 'number' ? Math.max(0, item.shipping) : 0,
           createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
@@ -528,6 +603,10 @@ function normalizePortfolio(value: unknown): PortfolioState {
         }]
       })
     : []
+  const trades = rawTrades.map(trade => ({
+    ...trade,
+    productId: trade.productId ? productIdMap.get(trade.productId) || trade.productId : undefined,
+  }))
 
   const linkedTrades = trades.map(trade => {
     const source = sourceForTrade(trade, safeSources)
@@ -556,15 +635,43 @@ function normalizePortfolio(value: unknown): PortfolioState {
       })
     : []
 
-  const overrides: Record<string, RealizedOverride> = {}
+  const rawOverrides: Record<string, RealizedOverride> = {}
   if (isRecord(value.realizedOverrides)) {
     Object.entries(value.realizedOverrides).forEach(([productId, override]) => {
       if (!isRecord(override)) return
       const cost = typeof override.cost === 'number' && override.cost >= 0 ? override.cost : undefined
       const sale = typeof override.sale === 'number' && override.sale >= 0 ? override.sale : undefined
-      if (cost !== undefined || sale !== undefined) overrides[productId] = { cost, sale }
+      if (cost === undefined && sale === undefined) return
+      rawOverrides[productId] = { cost, sale }
     })
   }
+  const overrides: Record<string, RealizedOverride> = {}
+  productGroups.forEach(group => {
+    const survivorId = productIdMap.get(group.candidates[0].id) || group.candidates[0].id
+    if (group.candidates.length === 1) {
+      const override = rawOverrides[group.candidates[0].id]
+      if (override) overrides[survivorId] = override
+      return
+    }
+    const hasAmbiguousUnlinkedTrade = rawTrades.some(trade =>
+      !trade.productId && group.candidates.some(product => belongsToProduct(trade, product)),
+    )
+    if (hasAmbiguousUnlinkedTrade) return
+    const statsByProductId = new Map(group.candidates.map(product => [product.id, calculateStats(product, rawTrades)]))
+    const hasCostOverride = group.candidates.some(product => rawOverrides[product.id]?.cost !== undefined)
+    const hasSaleOverride = group.candidates.some(product => rawOverrides[product.id]?.sale !== undefined)
+    const costParts = group.candidates.map(product => rawOverrides[product.id]?.cost ?? statsByProductId.get(product.id)?.soldCost ?? null)
+    const cost = hasCostOverride && costParts.every((part): part is number => part !== null)
+      ? costParts.reduce((sum, part) => sum + part, 0)
+      : undefined
+    const sale = hasSaleOverride
+      ? group.candidates.reduce((sum, product) => sum + (rawOverrides[product.id]?.sale ?? statsByProductId.get(product.id)?.saleNet ?? 0), 0)
+      : undefined
+    if (cost !== undefined || sale !== undefined) overrides[survivorId] = { cost, sale }
+  })
+  Object.entries(rawOverrides).forEach(([productId, override]) => {
+    if (!productIdMap.has(productId)) overrides[productId] = override
+  })
 
   return {
     schemaVersion: 1,
@@ -574,12 +681,40 @@ function normalizePortfolio(value: unknown): PortfolioState {
     sources: safeSources,
     collection: {
       hiddenProductIds: Array.isArray(collectionValue.hiddenProductIds)
-        ? collectionValue.hiddenProductIds.filter(id => typeof id === 'string')
+        ? [...new Set(collectionValue.hiddenProductIds.filter((id): id is string => typeof id === 'string').map(id => productIdMap.get(id) || id))]
         : [],
       manualCards,
     },
     realizedOverrides: overrides,
   }
+}
+
+function hasLegacyBoxPortfolioData(value: unknown) {
+  if (!isRecord(value)) return false
+  const hasLegacyCategory = Array.isArray(value.categories) && value.categories.some(item =>
+    isRecord(item)
+    && (
+      item.id === 'cat-box'
+      || item.name === 'ボックス'
+      || item.unitType === 'box'
+    ),
+  )
+  const hasLegacyProduct = Array.isArray(value.products) && value.products.some(item =>
+    isRecord(item)
+    && (
+      item.categoryId === 'cat-box'
+      || item.category === 'ボックス'
+      || item.unitType === 'box'
+    ),
+  )
+  const hasLegacyTrade = Array.isArray(value.trades) && value.trades.some(item =>
+    isRecord(item)
+    && (
+      item.category === 'ボックス'
+      || item.unitType === 'box'
+    ),
+  )
+  return hasLegacyCategory || hasLegacyProduct || hasLegacyTrade
 }
 
 type PortfolioDraft = {
@@ -937,6 +1072,7 @@ function PortfolioSession({ session }: { session: Session }) {
         revisionRef.current = snapshot.revision
         const draft = confirmDiscard ? null : readPortfolioDraft(user.id)
         const recoverDraft = draft?.baseRevision === snapshot.revision
+        const requiresPackMigration = !recoverDraft && hasLegacyBoxPortfolioData(snapshot.state)
         const nextPortfolio = recoverDraft && draft ? draft.state : normalizePortfolio(snapshot.state)
         setPortfolio(nextPortfolio)
         setSetupRequired(false)
@@ -950,6 +1086,12 @@ function PortfolioSession({ session }: { session: Session }) {
           setConflictingDraft(draft)
           setSaveStatus('conflict')
           setSaveError('クラウドと異なる未保存データがこの端末に残っています。使用するデータを選んでください。')
+        } else if (requiresPackMigration) {
+          setConflictingDraft(null)
+          pendingRef.current = nextPortfolio
+          writePortfolioDraft(user.id, revisionRef.current, nextPortfolio)
+          setSaveStatus('pending')
+          scheduleSave(150)
         } else {
           setConflictingDraft(null)
           setSaveStatus('saved')
@@ -1051,17 +1193,7 @@ function PortfolioSession({ session }: { session: Session }) {
     return <DraftRecoveryScreen
       draft={conflictingDraft}
       hasCloudSnapshot={revisionRef.current > 0}
-      onUseCloud={() => {
-        removePortfolioDraft(user.id)
-        setConflictingDraft(null)
-        setSaveError(null)
-        setSaveStatus('saved')
-        if (revisionRef.current === 0) {
-          setPortfolio(null)
-          setLegacyState(legacyAvailability(user.id))
-          setSetupRequired(true)
-        }
-      }}
+      onUseCloud={() => void refreshCloud(true)}
       onRecover={() => {
         if (!confirm('この端末の未保存データでクラウド帳簿を更新しますか？')) return
         const recovered = conflictingDraft.state
@@ -1428,15 +1560,20 @@ function LedgerApp({ initialPortfolio, user, saveStatus, saveError, onPortfolioC
   const addCategory = (name: string, unitType: UnitType) => {
     const clean = name.trim()
     if (!clean) return
+    if (normalize(clean) === normalize('ボックス')) {
+      alert('「ボックス」は「パック」に統合されています。「パック」を使用してください。')
+      return
+    }
+    const canonicalType = canonicalUnitType(unitType) || 'unknown'
     const existing = categories.find(category => normalize(category.name) === normalize(clean))
     if (existing) {
       if (!existing.active) {
-        persistCategories(categories.map(category => category.id === existing.id ? { ...category, unitType, active: true } : category))
-        persistProducts(products.map(product => product.categoryId === existing.id ? { ...product, unitType } : product))
+        persistCategories(categories.map(category => category.id === existing.id ? { ...category, unitType: canonicalType, active: true } : category))
+        persistProducts(products.map(product => product.categoryId === existing.id ? { ...product, unitType: canonicalType } : product))
       } else alert('同名のカテゴリーがすでにあります。')
       return
     }
-    persistCategories([...categories, { id: crypto.randomUUID(), name: clean, unitType, active: true, sortOrder: categories.length + 1 }])
+    persistCategories([...categories, { id: crypto.randomUUID(), name: clean, unitType: canonicalType, active: true, sortOrder: categories.length + 1 }])
   }
   const toggleCategory = (id: string) => {
     const target = categories.find(category => category.id === id)
